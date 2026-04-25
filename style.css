@@ -1,0 +1,53 @@
+:root {
+	--color-a: #e54e3e;
+	--color-b: #3997d7;
+}
+
+body,
+main {
+	margin: 0;
+	height: 100vh;
+}
+
+.grid {
+	margin: auto;
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	grid-template-rows: repeat(4, 1fr);
+	gap: .1rem;
+	max-width: 90vw;
+	max-height: 90vh;
+	aspect-ratio: 1;
+}
+
+.cell {
+	position: relative;
+	border-radius: 45%;
+	overflow: hidden;
+}
+
+.cell::before,
+.cell::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: -50%;
+	width: 50%;
+	height: 200%;
+	background-color: var(--color-a);
+	rotate: 10deg;
+}
+
+.cell::after {
+	left: unset;
+	right: 0;
+	background-color: var(--color-b);
+}
+
+.cell[data-state=A]::before {
+	opacity: 0;
+}
+
+.cell[data-state=B]::after {
+	opacity: 0;
+}
