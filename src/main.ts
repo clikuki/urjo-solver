@@ -101,6 +101,38 @@ class SixBySix extends GridData
 	}
 }
 
+class EightByEight extends GridData
+{
+	private data = new Uint32Array(4);
+	public size = 8;
+	public cellCnt = 64;
+
+	public get(idx: number)
+	{
+		const arrayIdx = idx >> 5;
+		const mask = 1 << (idx - (arrayIdx << 5));
+		const isStateA = (this.data[arrayIdx] & mask) !== 0;
+		const isStateB = (this.data[arrayIdx + 2] & mask) !== 0;
+		if (isStateA && isStateB) throw new Error("Invalid data, both masks set.");
+
+		if (isStateA) return CELL_STATE.A;
+		else if (isStateB) return CELL_STATE.B;
+		else return CELL_STATE.UNSET;
+	}
+
+	public set(idx: number, state: CELL_STATE)
+	{
+		const arrayIdx = idx >> 5;
+		const mask = 1 << (idx - (arrayIdx << 5));
+
+		if (state === CELL_STATE.A) this.data[arrayIdx] |= mask;
+		else this.data[arrayIdx] &= ~mask;
+
+		if (state === CELL_STATE.B) this.data[arrayIdx + 2] |= mask;
+		else this.data[arrayIdx + 2] &= ~mask;
+	}
+}
+
 const cellTemplate = document.querySelector(".cell-template") as HTMLTemplateElement;
 function createCellFragment(id: number): DocumentFragment
 {
@@ -154,15 +186,17 @@ function updateGridDisplay(
 function main()
 {
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new SixBySix();
+	const gridData = new EightByEight();
 
 	gridData.use(`
-		____a_
-		______
-		____a_
-		b_____
-		______
-		______
+		____a_a_
+		a_____b_
+		____a_b_
+		b_____a_
+		__a___b_
+		______a_
+		____a_a_
+		______b_
 	`);
 
 	updateGridDisplay(gridEl, gridData);
