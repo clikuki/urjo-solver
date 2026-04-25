@@ -11,10 +11,13 @@ abstract class GridData
 		dataString: string,
 		charA = "a",
 		charB = "b",
-		charUnset = "_"
+		charU = "_"
 	): void
 	{
-		if (charA.length !== 1 || charB.length !== 1) throw new Error("State key must be one character only.");
+		if (charA.length !== 1 || charB.length !== 1 || charU.length !== 1)
+		{
+			throw new Error("State key must be one character only.");
+		}
 
 		let idx = 0;
 		let state: CELL_STATE;
@@ -22,7 +25,7 @@ abstract class GridData
 		{
 			if (char === charA) state = CELL_STATE.A;
 			else if (char === charB) state = CELL_STATE.B;
-			else if (char === charUnset) state = CELL_STATE.UNSET;
+			else if (char === charU) state = CELL_STATE.UNSET;
 			else continue;
 
 			this.set(idx++, state);
@@ -63,6 +66,38 @@ class FourByFour extends GridData
 
 		if (state === CELL_STATE.B) this.data[1] |= mask;
 		else this.data[1] &= ~mask;
+	}
+}
+
+class SixBySix extends GridData
+{
+	private data = new Uint8Array(10);
+	public size = 6;
+	public cellCnt = 36;
+
+	public get(idx: number)
+	{
+		const arrayIdx = idx >> 3;
+		const mask = 1 << (idx - (arrayIdx << 3));
+		const isStateA = (this.data[arrayIdx] & mask) !== 0;
+		const isStateB = (this.data[arrayIdx + 5] & mask) !== 0;
+		if (isStateA && isStateB) throw new Error("Invalid data, both masks set.");
+
+		if (isStateA) return CELL_STATE.A;
+		else if (isStateB) return CELL_STATE.B;
+		else return CELL_STATE.UNSET;
+	}
+
+	public set(idx: number, state: CELL_STATE)
+	{
+		const arrayIdx = idx >> 3;
+		const mask = 1 << (idx - (arrayIdx << 3));
+
+		if (state === CELL_STATE.A) this.data[arrayIdx] |= mask;
+		else this.data[arrayIdx] &= ~mask;
+
+		if (state === CELL_STATE.B) this.data[arrayIdx + 5] |= mask;
+		else this.data[arrayIdx + 5] &= ~mask;
 	}
 }
 
@@ -119,13 +154,15 @@ function updateGridDisplay(
 function main()
 {
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new FourByFour();
+	const gridData = new SixBySix();
 
 	gridData.use(`
-		abba
-		abab
-		baab
-		baba
+		____a_
+		______
+		____a_
+		b_____
+		______
+		______
 	`);
 
 	updateGridDisplay(gridEl, gridData);
