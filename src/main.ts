@@ -4,10 +4,60 @@ abstract class GridData
 {
 	public abstract size: number;
 	public abstract cellCnt: number;
-	public abstract get(idx: number): CELL_STATE;
-	public abstract set(idx: number, state: CELL_STATE): void;
+	public abstract getState(idx: number): CELL_STATE;
+	public abstract setState(idx: number, state: CELL_STATE): void;
 
-	public use(
+	// limits format: idx_1, limit_1, idx_2, limit_2, ..., idx_n, limit_n,
+	// unlikely to change over course of grid lifespan, set once at start
+	private limits: [number, number][] = [];
+	public getLimit(idx: number): number
+	{
+		for (const [i, lim] of this.limits)
+		{
+			if (i === idx) return lim;
+		}
+
+		return 0;
+	}
+
+	public getLimits(): readonly [number, number][]
+	{
+		return this.limits;
+	}
+
+	// Limit validation
+	public setAllLimits(limitList: [idx: number, limit: number][]): void
+	{
+		this.limits.length = 0;
+
+		const usedIdx = new Set<number>();
+		for (const [idx, limit] of limitList)
+		{
+			if (usedIdx.has(idx)) throw new Error("Non-unique limit index found.");
+			if (limit > 8) throw new Error("Limit must not exceed 8.");
+			if (limit < 0) throw new Error("Limit cannot be negative.");
+
+			const x = idx % this.size;
+			const y = Math.floor(idx / this.size);
+			const atLeft = x === 0;
+			const atRight = x === this.size - 1;
+			const atTop = y === 0;
+			const atBottom = y === this.size - 1;
+			if ((atLeft || atRight) && (atTop || atBottom) && limit > 3)
+			{
+				throw new Error("Limit at corner cannot exceed 3.");
+			}
+			if ((atLeft || atRight || atTop || atBottom) && limit > 5)
+			{
+				throw new Error("Limit at edge cannot exceed 5.");
+			}
+
+			usedIdx.add(idx);
+			this.limits.push([idx, limit]);
+		}
+	}
+
+	public parseStringStates(
 		dataString: string,
 		charA = "a",
 		charB = "b",
@@ -28,13 +78,13 @@ abstract class GridData
 			else if (char === charU) state = CELL_STATE.UNSET;
 			else continue;
 
-			this.set(idx++, state);
+			this.setState(idx++, state);
 		}
 
 		// Clear remaining cells, if any
 		while (idx < this.cellCnt)
 		{
-			this.set(idx++, CELL_STATE.UNSET);
+			this.setState(idx++, CELL_STATE.UNSET);
 		}
 	}
 }
@@ -45,7 +95,7 @@ class FourByFour extends GridData
 	public size = 4;
 	public cellCnt = 16;
 
-	public get(idx: number)
+	public getState(idx: number)
 	{
 		const mask = 1 << idx;
 		const isStateA = (this.data[0] & mask) !== 0;
@@ -57,7 +107,7 @@ class FourByFour extends GridData
 		else return CELL_STATE.UNSET;
 	}
 
-	public set(idx: number, state: CELL_STATE)
+	public setState(idx: number, state: CELL_STATE)
 	{
 		const mask = 1 << idx;
 
@@ -75,7 +125,7 @@ class SixBySix extends GridData
 	public size = 6;
 	public cellCnt = 36;
 
-	public get(idx: number)
+	public getState(idx: number)
 	{
 		const arrayIdx = idx >> 3;
 		const mask = 1 << (idx - (arrayIdx << 3));
@@ -88,7 +138,7 @@ class SixBySix extends GridData
 		else return CELL_STATE.UNSET;
 	}
 
-	public set(idx: number, state: CELL_STATE)
+	public setState(idx: number, state: CELL_STATE)
 	{
 		const arrayIdx = idx >> 3;
 		const mask = 1 << (idx - (arrayIdx << 3));
@@ -107,7 +157,7 @@ class EightByEight extends GridData
 	public size = 8;
 	public cellCnt = 64;
 
-	public get(idx: number)
+	public getState(idx: number)
 	{
 		const arrayIdx = idx >> 5;
 		const mask = 1 << (idx - (arrayIdx << 5));
@@ -120,7 +170,7 @@ class EightByEight extends GridData
 		else return CELL_STATE.UNSET;
 	}
 
-	public set(idx: number, state: CELL_STATE)
+	public setState(idx: number, state: CELL_STATE)
 	{
 		const arrayIdx = idx >> 5;
 		const mask = 1 << (idx - (arrayIdx << 5));
@@ -165,8 +215,8 @@ function updateGridDisplay(
 
 	for (let i = 0; i < data.cellCnt; i++)
 	{
-		const state = data.get(i);
-		const cellEl = gridEl.children[i]
+		const state = data.getState(i);
+		const cellEl = gridEl.children[i];
 		switch (state)
 		{
 			case CELL_STATE.A:
@@ -181,6 +231,14 @@ function updateGridDisplay(
 				break;
 		}
 	}
+
+	// TODO: clear previous limit text
+	for (const [idx, lim] of data.getLimits())
+	{
+		const cellEl = gridEl.children[idx];
+		const countEl = cellEl.querySelector(".count") as HTMLElement;
+		countEl.textContent = String(lim);
+	}
 }
 
 function main()
@@ -188,7 +246,7 @@ function main()
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
 	const gridData = new EightByEight();
 
-	gridData.use(`
+	gridData.parseStringStates(`
 		____a_a_
 		a_____b_
 		____a_b_
@@ -198,6 +256,10 @@ function main()
 		____a_a_
 		______b_
 	`);
+	gridData.setAllLimits([
+		[3, 4],
+		[14, 8],
+	])
 
 	updateGridDisplay(gridEl, gridData);
 }
