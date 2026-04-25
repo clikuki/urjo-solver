@@ -1,37 +1,46 @@
-// abstract class GridData {
-// 	public abstract get(idx: number): number; 
-// 	public abstract set(idx: number, val: number): number; 
-// }
+const enum CELL_STATE { A, B, UNSET }
 
-// class FourByFour extends GridData {
-// 	private data = new Uint16Array(2);
-// 	private indexA = 0
-// 	private indexB = 0
+abstract class GridData
+{
+	public abstract size: number;
+	public abstract cellCnt: number;
+	public abstract get(idx: number): CELL_STATE;
+	public abstract set(idx: number, state: CELL_STATE): void;
+}
 
-// 	public get(idx: number): number
-// 	{
+class FourByFour extends GridData
+{
+	private data = new Uint16Array(2);
+	public size = 4;
+	public cellCnt = 16;
 
-// 	}
+	public get(idx: number)
+	{
+		const mask = 1 << idx;
+		const isStateA = (this.data[0] & mask) !== 0;
+		const isStateB = (this.data[1] & mask) !== 0;
+		if (isStateA && isStateB) throw new Error("Invalid data, both masks set.");
 
-// 	public set(idx: number, val: number): number
-// 	{
+		if (isStateA) return CELL_STATE.A;
+		else if (isStateB) return CELL_STATE.B;
+		else return CELL_STATE.UNSET;
+	}
 
-// 	}
-// }
+	public set(idx: number, state: CELL_STATE)
+	{
+		const mask = 1 << idx;
+
+		if (state === CELL_STATE.A) this.data[0] |= mask;
+		else this.data[0] &= ~mask;
+
+		if (state === CELL_STATE.B) this.data[1] |= mask;
+		else this.data[1] &= ~mask;
+	}
+}
 
 const cellTemplate = document.querySelector(".cell-template") as HTMLTemplateElement;
 function createCellFragment(id: number): DocumentFragment
 {
-	// const cell = document.createElement("div");
-	// cell.className = "cell";
-
-	// const sideA = document.createElement("div");
-	// const sideB = document.createElement("div");
-	// sideA.className = "side side-A";
-	// sideB.className = "side side-B";
-
-	// sideB.className = "side side-B";
-
 	const cellFrag = document.importNode(cellTemplate.content, true);
 	const cell = cellFrag.querySelector(".cell");
 	if (!cell) throw new Error("Cell template does not match expected structure");
@@ -43,54 +52,57 @@ function createCellFragment(id: number): DocumentFragment
 
 function updateGridDisplay(
 	gridEl: HTMLElement,
-	gridData: Uint16Array,
-	size: number
+	data: GridData,
 ): void
 {
-	if (size < 4 || size % 2 === 1) throw new Error("Invalid size.");
-	gridEl.style.setProperty("--size", String(size));
+	gridEl.style.setProperty("--size", String(data.size));
 
-	const cellCnt = size * size;
-
-	if (gridEl.childElementCount > cellCnt)
+	if (gridEl.childElementCount > data.cellCnt)
 	{
-		const excessCells = gridEl.querySelectorAll(`:nth-child(n + ${cellCnt + 1})`)
+		const excessCells = gridEl.querySelectorAll(`:nth-child(n + ${data.cellCnt + 1})`)
 		excessCells.forEach(c => c.remove());
 	}
-	else for (let i = gridEl.childElementCount; i < cellCnt; i++)
+	else for (let i = gridEl.childElementCount; i < data.cellCnt; i++)
 	{
 		const cellFrag = createCellFragment(i);
 		gridEl.appendChild(cellFrag);
 	}
 
-	// TODO: abstract away grid data access
-	for (let i = 0; i < cellCnt; i++)
+	for (let i = 0; i < data.cellCnt; i++)
 	{
-		const mask = 1 << i;
-		const isStateA = (gridData[0] & mask) !== 0;
-		const isStateB = (gridData[1] & mask) !== 0;
-		if (isStateA && isStateB) throw new Error("Invalid data, both masks set.");
-
+		const state = data.get(i);
 		const cellEl = gridEl.children[i]
-		if (isStateA) cellEl.setAttribute("data-state", "A");
-		else if (isStateB) cellEl.setAttribute("data-state", "B");
-		else cellEl.setAttribute("data-state", "UNSET");
+		switch (state)
+		{
+			case CELL_STATE.A:
+				cellEl.setAttribute("data-state", "A");
+				break;
+			case CELL_STATE.B:
+				cellEl.setAttribute("data-state", "B");
+				break;
+			case CELL_STATE.UNSET:
+			default:
+				cellEl.setAttribute("data-state", "UNSET");
+				break;
+		}
 	}
 }
 
 function main()
 {
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new Uint16Array(2); // 4x4
+	const gridData = new FourByFour();
+	gridData.set(0, CELL_STATE.A);
+	gridData.set(15, CELL_STATE.B);
 
-	// populate with test data
-	gridData[0] = 0b1001_1010_0110_0101;
-	gridData[1] = 0b0110_0101_1001_1010;
+	// // populate with test data
+	// gridData[0] = 0b1001_1010_0110_0101;
+	// gridData[1] = 0b0110_0101_1001_1010;
 
-	console.log(gridData[0]);
-	console.log(gridData[1]);
+	// console.log(gridData[0]);
+	// console.log(gridData[1]);
 
-	updateGridDisplay(gridEl, gridData, 4);
+	updateGridDisplay(gridEl, gridData);
 }
 
 main()
