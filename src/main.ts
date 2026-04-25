@@ -6,6 +6,34 @@ abstract class GridData
 	public abstract cellCnt: number;
 	public abstract get(idx: number): CELL_STATE;
 	public abstract set(idx: number, state: CELL_STATE): void;
+
+	public use(
+		dataString: string,
+		charA = "a",
+		charB = "b",
+		charUnset = "_"
+	): void
+	{
+		if (charA.length !== 1 || charB.length !== 1) throw new Error("State key must be one character only.");
+
+		let idx = 0;
+		let state: CELL_STATE;
+		for (const char of dataString)
+		{
+			if (char === charA) state = CELL_STATE.A;
+			else if (char === charB) state = CELL_STATE.B;
+			else if (char === charUnset) state = CELL_STATE.UNSET;
+			else continue;
+
+			this.set(idx++, state);
+		}
+
+		// Clear remaining cells, if any
+		while (idx < this.cellCnt)
+		{
+			this.set(idx++, CELL_STATE.UNSET);
+		}
+	}
 }
 
 class FourByFour extends GridData
@@ -92,15 +120,13 @@ function main()
 {
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
 	const gridData = new FourByFour();
-	gridData.set(0, CELL_STATE.A);
-	gridData.set(15, CELL_STATE.B);
 
-	// // populate with test data
-	// gridData[0] = 0b1001_1010_0110_0101;
-	// gridData[1] = 0b0110_0101_1001_1010;
-
-	// console.log(gridData[0]);
-	// console.log(gridData[1]);
+	gridData.use(`
+		abba
+		abab
+		baab
+		baba
+	`);
 
 	updateGridDisplay(gridEl, gridData);
 }
