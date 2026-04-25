@@ -1,4 +1,5 @@
 :root {
+	--color-bg: #171717;
 	--color-a: #e54e3e;
 	--color-b: #3997d7;
 }
@@ -9,7 +10,7 @@ body {
 
 main {
 	height: 100vh;
-	background-color: black;
+	background-color: var(--color-bg);
 	display: flex;
 }
 
