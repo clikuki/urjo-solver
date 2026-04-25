@@ -3,10 +3,14 @@
 	--color-b: #3997d7;
 }
 
-body,
-main {
+body {
 	margin: 0;
+}
+
+main {
 	height: 100vh;
+	background-color: black;
+	display: flex;
 }
 
 .grid {
@@ -14,9 +18,8 @@ main {
 	display: grid;
 	grid-template-columns: repeat(4, 1fr);
 	grid-template-rows: repeat(4, 1fr);
-	gap: .1rem;
-	max-width: 90vw;
-	max-height: 90vh;
+	gap: .2rem;
+	width: 80vh;
 	aspect-ratio: 1;
 }
 
@@ -26,28 +29,49 @@ main {
 	overflow: hidden;
 }
 
-.cell::before,
-.cell::after {
+.count {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	width: 100%;
+	height: 100%;
+	color: white;
+	font-size: 6rem;
+	font-family: monospace;
+	isolation: isolate;
+	pointer-events: none;
+}
+
+.side {
 	content: "";
 	position: absolute;
 	left: 0;
 	top: -50%;
-	width: 50%;
+	width: 100%;
 	height: 200%;
 	background-color: var(--color-a);
 	rotate: 10deg;
+	translate: -49.5%;
+	opacity: 0;
 }
 
-.cell::after {
-	left: unset;
-	right: 0;
+.side-B {
 	background-color: var(--color-b);
+	translate: 51.5%;
 }
 
-.cell[data-state=A]::before {
-	opacity: 0;
+.cell[data-state=UNSET] .side {
+	opacity: 0.3;
 }
 
-.cell[data-state=B]::after {
-	opacity: 0;
+.cell[data-state=UNSET] .side:hover {
+	opacity: .6;
+}
+
+.cell[data-state=A] {
+	background-color: var(--color-a);
+}
+
+.cell[data-state=B] {
+	background-color: var(--color-b);
 }
