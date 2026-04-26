@@ -33,9 +33,11 @@ abstract class GridData
 		const usedIdx = new Set<number>();
 		for (const [idx, limit] of limitList)
 		{
-			if (usedIdx.has(idx)) throw new Error("Non-unique limit index found.");
-			if (limit > 8) throw new Error("Limit must not exceed 8.");
-			if (limit < 0) throw new Error("Limit cannot be negative.");
+			if (idx < 0) throw new Error(`Limit index #${idx} is negative.`);
+			if (idx >= this.cellCnt) throw new Error(`Limit index #${idx} exceeds ${this.cellCnt - 1}.`);
+			if (usedIdx.has(idx)) throw new Error(`Limit at index #${idx} is set more than once.`);
+			if (limit > 8) throw new Error(`Limit at index #${idx} exceeds 8.`);
+			if (limit < 0) throw new Error(`Limit at index #${idx} is negative.`);
 
 			const x = idx % this.size;
 			const y = Math.floor(idx / this.size);
@@ -45,11 +47,11 @@ abstract class GridData
 			const atBottom = y === this.size - 1;
 			if ((atLeft || atRight) && (atTop || atBottom) && limit > 3)
 			{
-				throw new Error("Limit at corner cannot exceed 3.");
+				throw new Error(`Corner limit at index #${idx} exceeds 3.`);
 			}
 			if ((atLeft || atRight || atTop || atBottom) && limit > 5)
 			{
-				throw new Error("Limit at edge cannot exceed 5.");
+				throw new Error(`Edge limit at index #${idx} exceeds 5.`);
 			}
 
 			usedIdx.add(idx);
@@ -79,6 +81,7 @@ abstract class GridData
 			else continue;
 
 			this.setState(idx++, state);
+			if (idx >= this.cellCnt) return;
 		}
 
 		// Clear remaining cells, if any
@@ -100,7 +103,7 @@ class FourByFour extends GridData
 		const mask = 1 << idx;
 		const isStateA = (this.data[0] & mask) !== 0;
 		const isStateB = (this.data[1] & mask) !== 0;
-		if (isStateA && isStateB) throw new Error("Invalid data, both masks set.");
+		if (isStateA && isStateB) throw new Error(`Invalid data, both bits at index #${idx} set.`);
 
 		if (isStateA) return CELL_STATE.A;
 		else if (isStateB) return CELL_STATE.B;
@@ -131,7 +134,7 @@ class SixBySix extends GridData
 		const mask = 1 << (idx - (arrayIdx << 3));
 		const isStateA = (this.data[arrayIdx] & mask) !== 0;
 		const isStateB = (this.data[arrayIdx + 5] & mask) !== 0;
-		if (isStateA && isStateB) throw new Error("Invalid data, both masks set.");
+		if (isStateA && isStateB) throw new Error(`Invalid data, both bits at index #${idx} set.`);
 
 		if (isStateA) return CELL_STATE.A;
 		else if (isStateB) return CELL_STATE.B;
@@ -163,7 +166,7 @@ class EightByEight extends GridData
 		const mask = 1 << (idx - (arrayIdx << 5));
 		const isStateA = (this.data[arrayIdx] & mask) !== 0;
 		const isStateB = (this.data[arrayIdx + 2] & mask) !== 0;
-		if (isStateA && isStateB) throw new Error("Invalid data, both masks set.");
+		if (isStateA && isStateB) throw new Error(`Invalid data, both bits at index #${idx} set.`);
 
 		if (isStateA) return CELL_STATE.A;
 		else if (isStateB) return CELL_STATE.B;

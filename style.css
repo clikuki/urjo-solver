@@ -29,6 +29,7 @@ main {
 	position: relative;
 	border-radius: 45%;
 	overflow: hidden;
+	container-type: inline-size;
 }
 
 .count {
@@ -38,7 +39,7 @@ main {
 	width: 100%;
 	height: 100%;
 	color: white;
-	font-size: 6rem;
+	font-size: 70cqw;
 	font-family: monospace;
 	isolation: isolate;
 	pointer-events: none;
