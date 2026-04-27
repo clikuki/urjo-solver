@@ -5,7 +5,8 @@ interface LimitNode
 	counting: number[];
 	countedBy: number[];
 }
-type LimitEntry = [number, number[]]
+type LimitEntry = [number, number[]];
+type Integer = number | BigInt;
 
 abstract class GridData
 {
@@ -13,6 +14,7 @@ abstract class GridData
 	public abstract cellCnt: number;
 	public abstract getState(idx: number): CELL_STATE;
 	public abstract setState(idx: number, state: CELL_STATE): void;
+	public abstract getLines(): [Integer, Integer][]
 
 	private limitMap: LimitNode[] = [];
 	public getLimit(idx: number): number
@@ -142,20 +144,44 @@ class FourByFour extends GridData
 		if (state === CELL_STATE.B) this.data[1] |= mask;
 		else this.data[1] &= ~mask;
 	}
+
+	public getLines(): [number, number][]
+	{
+		const lines: [number, number][] = [];
+
+		let mask = 0x1111;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+
+		mask = 0xf;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 4;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 4;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 4;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+
+		return lines;
+	}
 }
 
 class SixBySix extends GridData
 {
-	private data = new Uint8Array(11);
+	private data = new BigUint64Array(3);
 	public size = 6;
 	public cellCnt = 36;
 
 	public getState(idx: number)
 	{
-		const arrayIdx = idx >> 3;
-		const mask = 1 << (idx - (arrayIdx << 3));
-		const isStateA = (this.data[arrayIdx] & mask) !== 0;
-		const isStateB = (this.data[arrayIdx + 5] & mask) !== 0;
+		const mask = BigInt(1 << idx);
+		const isStateA = (this.data[0] & mask) !== 0n;
+		const isStateB = (this.data[1] & mask) !== 0n;
 		if (isStateA && isStateB) throw new Error(`Invalid data, both bits at index #${idx} set.`);
 
 		if (isStateA) return CELL_STATE.A;
@@ -165,29 +191,60 @@ class SixBySix extends GridData
 
 	public setState(idx: number, state: CELL_STATE)
 	{
-		const arrayIdx = idx >> 3;
-		const mask = 1 << (idx - (arrayIdx << 3));
+		const mask = BigInt(1 << idx);
 
-		if (state === CELL_STATE.A) this.data[arrayIdx] |= mask;
-		else this.data[arrayIdx] &= ~mask;
+		if (state === CELL_STATE.A) this.data[0] |= mask;
+		else this.data[0] &= ~mask;
 
-		if (state === CELL_STATE.B) this.data[arrayIdx + 5] |= mask;
-		else this.data[arrayIdx + 5] &= ~mask;
+		if (state === CELL_STATE.B) this.data[1] |= mask;
+		else this.data[1] &= ~mask;
+	}
+
+	public getLines(): [BigInt, BigInt][]
+	{
+		const lines: [BigInt, BigInt][] = [];
+
+		let mask = 0x41041041n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+
+		mask = 0x3fn;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 6n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 6n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 6n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 6n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 6n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+
+		return lines;
 	}
 }
 
 class EightByEight extends GridData
 {
-	private data = new Uint32Array(5);
+	private data = new BigUint64Array(3);
 	public size = 8;
 	public cellCnt = 64;
 
 	public getState(idx: number)
 	{
-		const arrayIdx = idx >> 5;
-		const mask = 1 << (idx - (arrayIdx << 5));
-		const isStateA = (this.data[arrayIdx] & mask) !== 0;
-		const isStateB = (this.data[arrayIdx + 2] & mask) !== 0;
+		const mask = BigInt(1 << idx);
+		const isStateA = (this.data[0] & mask) !== 0n;
+		const isStateB = (this.data[1] & mask) !== 0n;
 		if (isStateA && isStateB) throw new Error(`Invalid data, both bits at index #${idx} set.`);
 
 		if (isStateA) return CELL_STATE.A;
@@ -197,14 +254,54 @@ class EightByEight extends GridData
 
 	public setState(idx: number, state: CELL_STATE)
 	{
-		const arrayIdx = idx >> 5;
-		const mask = 1 << (idx - (arrayIdx << 5));
+		const mask = BigInt(1 << idx);
 
-		if (state === CELL_STATE.A) this.data[arrayIdx] |= mask;
-		else this.data[arrayIdx] &= ~mask;
+		if (state === CELL_STATE.A) this.data[0] |= mask;
+		else this.data[0] &= ~mask;
 
-		if (state === CELL_STATE.B) this.data[arrayIdx + 2] |= mask;
-		else this.data[arrayIdx + 2] &= ~mask;
+		if (state === CELL_STATE.B) this.data[1] |= mask;
+		else this.data[1] &= ~mask;
+	}
+
+	public getLines(): [BigInt, BigInt][]
+	{
+		const lines: [BigInt, BigInt][] = [];
+
+		let mask = 0x0101010101010101n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 1n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+
+		mask = 0xffn;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 8n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 8n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 8n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 8n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 8n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 8n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		mask << 8n;
+		lines.push([this.data[0] & mask, this.data[1] & mask]);
+
+		return lines;
 	}
 }
 
@@ -231,6 +328,51 @@ class Solver
 		}
 
 		return moves;
+	}
+
+	public playMove(idx: number, state: CELL_STATE): void
+	{
+		this.grid.setState(idx, state);
+		this.moveIndices.push(idx);
+	}
+
+	public undoMove(): void
+	{
+		if (!this.moveIndices.length) return;
+		const idx = this.moveIndices.pop()!;
+		this.grid.setState(idx, CELL_STATE.UNSET);
+	}
+
+	public validateGrid(): boolean
+	{
+		const lines = this.grid.getLines();
+		for (let i = 0, j; i < this.grid.size; i++)
+		{
+			const line = lines[i];
+
+			// Check state counts per line
+			let stateACnt = this.grid.size / 2, stateBCnt = stateACnt;
+			for (const state of line)
+			{
+				if (state === CELL_STATE.A && --stateACnt <= 0) return false;
+				if (state === CELL_STATE.B && --stateBCnt <= 0) return false;
+			}
+
+			if (i)
+			{
+				// Check if consecutive lines are same
+				const nextLine = lines[i - 1];
+
+				for (j = 0; j < this.grid.size; j++)
+				{
+					if (nextLine[j] !== line[j]) break;
+				}
+
+				return false;
+			}
+		}
+
+		return true;
 	}
 }
 
@@ -284,7 +426,8 @@ function updateGridDisplay(
 		}
 
 		const countEl = cellEl.querySelector(".count") as HTMLElement;
-		countEl.textContent = String(data.getLimit(i) || "");
+		const limit = data.getLimit(i);
+		countEl.textContent = limit < 0 ? "" : String(limit);
 	}
 }
 
