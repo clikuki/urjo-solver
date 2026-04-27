@@ -124,9 +124,9 @@ class FourByFour extends GridData
 
 	public getState(idx: number)
 	{
-		const mask = 1 << idx;
-		const isStateA = (this.data[0] & mask) !== 0;
-		const isStateB = (this.data[1] & mask) !== 0;
+		this.data[2] = 1 << idx;
+		const isStateA = (this.data[0] & this.data[2]) !== 0;
+		const isStateB = (this.data[1] & this.data[2]) !== 0;
 		if (isStateA && isStateB) throw new Error(`Invalid data, both bits at index #${idx} set.`);
 
 		if (isStateA) return CELL_STATE.A;
@@ -136,36 +136,36 @@ class FourByFour extends GridData
 
 	public setState(idx: number, state: CELL_STATE)
 	{
-		const mask = 1 << idx;
+		this.data[2] = 1 << idx;
 
-		if (state === CELL_STATE.A) this.data[0] |= mask;
-		else this.data[0] &= ~mask;
+		if (state === CELL_STATE.A) this.data[0] |= this.data[2];
+		else this.data[0] &= ~this.data[2];
 
-		if (state === CELL_STATE.B) this.data[1] |= mask;
-		else this.data[1] &= ~mask;
+		if (state === CELL_STATE.B) this.data[1] |= this.data[2];
+		else this.data[1] &= ~this.data[2];
 	}
 
 	public getLines(): [number, number][]
 	{
 		const lines: [number, number][] = [];
 
-		let mask = 0x1111;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 1;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 1;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 1;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		this.data[2] = 0x1111;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 1;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 1;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 1;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
 
-		mask = 0xf;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 4;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 4;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 4;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		this.data[2] = 0xf;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 4;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 4;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 4;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
 
 		return lines;
 	}
@@ -191,44 +191,44 @@ class SixBySix extends GridData
 
 	public setState(idx: number, state: CELL_STATE)
 	{
-		const mask = BigInt(1 << idx);
+		this.data[2] = BigInt(1 << idx);
 
-		if (state === CELL_STATE.A) this.data[0] |= mask;
-		else this.data[0] &= ~mask;
+		if (state === CELL_STATE.A) this.data[0] |= this.data[2];
+		else this.data[0] &= ~this.data[2];
 
-		if (state === CELL_STATE.B) this.data[1] |= mask;
-		else this.data[1] &= ~mask;
+		if (state === CELL_STATE.B) this.data[1] |= this.data[2];
+		else this.data[1] &= ~this.data[2];
 	}
 
 	public getLines(): [BigInt, BigInt][]
 	{
 		const lines: [BigInt, BigInt][] = [];
 
-		let mask = 0x41041041n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 1n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 1n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 1n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 1n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 1n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		this.data[2] = 0x41041041n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 1n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 1n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 1n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 1n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 1n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
 
-		mask = 0x3fn;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 6n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 6n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 6n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 6n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
-		mask << 6n;
-		lines.push([this.data[0] & mask, this.data[1] & mask]);
+		this.data[2] = 0x3fn;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 6n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 6n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 6n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 6n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
+		this.data[2] << 6n;
+		lines.push([this.data[0] & this.data[2], this.data[1] & this.data[2]]);
 
 		return lines;
 	}
