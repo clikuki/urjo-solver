@@ -1,5 +1,12 @@
 const enum CELL_STATE { A, B, UNSET }
 
+interface LimitNode
+{
+	counting: number[];
+	countedBy: number[];
+}
+type LimitEntry = [number, number[]]
+
 abstract class GridData
 {
 	public abstract size: number;
@@ -7,28 +14,28 @@ abstract class GridData
 	public abstract getState(idx: number): CELL_STATE;
 	public abstract setState(idx: number, state: CELL_STATE): void;
 
-	// limits format: idx_1, limit_1, idx_2, limit_2, ..., idx_n, limit_n,
-	// unlikely to change over course of grid lifespan, set once at start
-	private limits: [number, number][] = [];
+	private limitMap: LimitNode[] = [];
 	public getLimit(idx: number): number
 	{
-		for (const [i, lim] of this.limits)
-		{
-			if (i === idx) return lim;
-		}
+		const node = this.limitMap[idx];
+		if (!node) return -1;
 
-		return 0;
+		return node.counting.length;
 	}
 
-	public getLimits(): readonly [number, number][]
+	public getSurroundingLimits(idx: number): LimitEntry[]
 	{
-		return this.limits;
+		const node = this.limitMap[idx];
+		if (!node) return [];
+
+		const limitSet: LimitEntry[] = node.countedBy.map(idx => [idx, this.limitMap[idx].counting]);
+		if (node.counting.length) limitSet.push([idx, node.counting]);
+		return limitSet;
 	}
 
-	// Limit validation
 	public setAllLimits(limitList: [idx: number, limit: number][]): void
 	{
-		this.limits.length = 0;
+		this.limitMap.length = 0;
 
 		const usedIdx = new Set<number>();
 		for (const [idx, limit] of limitList)
@@ -54,8 +61,23 @@ abstract class GridData
 				throw new Error(`Edge limit at index #${idx} exceeds 5.`);
 			}
 
+			const counting: number[] = [];
+			if (!atLeft) counting.push(idx - 1);
+			if (!atRight) counting.push(idx + 1);
+			if (!atTop) counting.push(idx - this.size);
+			if (!atBottom) counting.push(idx + this.size);
+			if (!(atLeft && atTop)) counting.push(idx - this.size - 1);
+			if (!(atRight && atTop)) counting.push(idx - this.size + 1);
+			if (!(atLeft && atBottom)) counting.push(idx + this.size - 1);
+			if (!(atRight && atBottom)) counting.push(idx + this.size + 1);
+
 			usedIdx.add(idx);
-			this.limits.push([idx, limit]);
+
+			if (this.limitMap[idx]) this.limitMap[idx].counting = counting;
+			else this.limitMap[idx] = {
+				counting,
+				countedBy: [],
+			}
 		}
 	}
 
@@ -94,7 +116,7 @@ abstract class GridData
 
 class FourByFour extends GridData
 {
-	private data = new Uint16Array(2);
+	private data = new Uint16Array(3);
 	public size = 4;
 	public cellCnt = 16;
 
@@ -124,7 +146,7 @@ class FourByFour extends GridData
 
 class SixBySix extends GridData
 {
-	private data = new Uint8Array(10);
+	private data = new Uint8Array(11);
 	public size = 6;
 	public cellCnt = 36;
 
@@ -156,7 +178,7 @@ class SixBySix extends GridData
 
 class EightByEight extends GridData
 {
-	private data = new Uint32Array(4);
+	private data = new Uint32Array(5);
 	public size = 8;
 	public cellCnt = 64;
 
@@ -183,6 +205,32 @@ class EightByEight extends GridData
 
 		if (state === CELL_STATE.B) this.data[arrayIdx + 2] |= mask;
 		else this.data[arrayIdx + 2] &= ~mask;
+	}
+}
+
+class Solver
+{
+	private grid: GridData;
+	private moveIndices: number[] = [];
+
+	public useGrid(grid: GridData)
+	{
+		this.grid = grid;
+		this.moveIndices.length = 0;
+	}
+
+	public getMoves(): number[]
+	{
+		const moves: number[] = [];
+
+		for (let i = 0; i < this.grid.cellCnt; i++)
+		{
+			const state = this.grid.getState(i);
+			if (state === CELL_STATE.UNSET) continue;
+			moves.push(i);
+		}
+
+		return moves;
 	}
 }
 
@@ -220,6 +268,7 @@ function updateGridDisplay(
 	{
 		const state = data.getState(i);
 		const cellEl = gridEl.children[i];
+
 		switch (state)
 		{
 			case CELL_STATE.A:
@@ -233,36 +282,23 @@ function updateGridDisplay(
 				cellEl.setAttribute("data-state", "UNSET");
 				break;
 		}
-	}
 
-	// TODO: clear previous limit text
-	for (const [idx, lim] of data.getLimits())
-	{
-		const cellEl = gridEl.children[idx];
 		const countEl = cellEl.querySelector(".count") as HTMLElement;
-		countEl.textContent = String(lim);
+		countEl.textContent = String(data.getLimit(i) || "");
 	}
 }
 
 function main()
 {
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new EightByEight();
+	const gridData = new FourByFour();
 
 	gridData.parseStringStates(`
-		____a_a_
-		a_____b_
-		____a_b_
-		b_____a_
-		__a___b_
-		______a_
-		____a_a_
-		______b_
+		____
+		a___
+		____
+		b___
 	`);
-	gridData.setAllLimits([
-		[3, 4],
-		[14, 8],
-	])
 
 	updateGridDisplay(gridEl, gridData);
 }
