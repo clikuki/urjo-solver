@@ -414,8 +414,8 @@ class Solver
 
 	public validateGrid(): boolean
 	{
+		// Check lines
 		const lines = this.grid.getLines(), half = this.grid.size / 2;
-		// console.log(lines.map(l => l.map(n => n.toString(2))));
 		for (let i = 0; i < this.grid.size * 2; i++)
 		{
 			const line = lines[i];
@@ -432,6 +432,46 @@ class Solver
 				// Check if consecutive lines are same
 				const prevLine = lines[i - 1];
 				if (line[0] === prevLine[0] && line[1] === prevLine[1]) return false;
+			}
+		}
+
+		// Check limits
+		const limitIndices = this.grid.getLimitedCells();
+		for (const idx of limitIndices)
+		{
+			const limit = this.grid.getLimitCount(idx);
+			const state = this.grid.getState(idx);
+			const neighbors = this.grid.getLimitNeighbors(idx);
+
+			let cntA = 0, cntB = 0, cntU = 0;
+			for (const i of neighbors)
+			{
+				const state = this.grid.getState(i);
+				switch (state)
+				{
+					case CELL_STATE.A:
+						++cntA;
+						break;
+					case CELL_STATE.B:
+						++cntB;
+						break;
+					case CELL_STATE.UNSET:
+						++cntU;
+						break;
+				}
+			}
+
+			if (state === CELL_STATE.A)
+			{
+				if (cntA > limit || cntU + cntA < limit) return false;
+			}
+			else if (state === CELL_STATE.B)
+			{
+				if (cntB > limit || cntU + cntB < limit) return false;
+			}
+			else
+			{
+				if (cntA > limit && cntB > limit) return false;
 			}
 		}
 
@@ -499,7 +539,7 @@ function updateGridDisplay(
 		}
 
 		const countEl = cellEl.querySelector(".count") as HTMLElement;
-		const limit = data.getLimit(i);
+		const limit = data.getLimitCount(i);
 		countEl.textContent = limit < 0 ? "" : String(limit);
 	}
 }
@@ -510,11 +550,14 @@ function main()
 	const gridData = new FourByFour();
 
 	gridData.parseStringStates(`
-		abab
-		abba
-		baab
-		baba
+		ab__
+		a___
+		____
+		____
 	`);
+	gridData.setAllLimits([
+		[0, 2]
+	])
 
 	const solver = new Solver();
 	solver.useGrid(gridData);
