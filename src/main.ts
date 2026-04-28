@@ -147,7 +147,7 @@ abstract class GridData
 		let str = "";
 		for (let idx = 0; idx < this.cellCnt; idx++)
 		{
-			if (idx % this.size === 0) str += "\n";
+			if (idx && idx % this.size === 0) str += "\n";
 			const state = this.getState(idx);
 			switch (state)
 			{
@@ -397,15 +397,23 @@ class EightByEight extends GridData
 	}
 }
 
+const enum GRID_STATE
+{
+	INPROGRESS,
+	INVALID,
+	COMPLETE,
+}
 class Solver
 {
 	private grid: GridData;
 	private moveIndices: number[] = [];
+	private stack: number[][] = [];
 
 	public useGrid(grid: GridData)
 	{
 		this.grid = grid;
 		this.moveIndices.length = 0;
+		this.stack[0] = this.getMoves()
 	}
 
 	public getMoves(): number[]
@@ -435,24 +443,33 @@ class Solver
 		this.grid.setState(idx, CELL_STATE.UNSET);
 	}
 
-	public validateGrid(): boolean
+	public validateGrid(): GRID_STATE
 	{
-		return this._validateLines() && this._validateLimits();
+		const lineFlags = this._validateLines();
+		const linesAreValid = lineFlags & 1;
+		const isFilled = lineFlags & 2;
+
+		if (!linesAreValid || !this._validateLimits()) return GRID_STATE.INVALID;
+
+		return isFilled ? GRID_STATE.COMPLETE : GRID_STATE.INPROGRESS;
 	}
 
-	private _stack: number[][] = [];
-	public step(): void
+	public step(): null | string
 	{
-		if (!this._stack.length) this._stack[0] = this.getMoves();
+		if (!this.stack.length) return null;
 
-		const gridIsValid = this.validateGrid();
-		const moves = this._stack[this._stack.length - 1];
+		const gridState = this.validateGrid();
+		const moves = this.stack[this.stack.length - 1];
 		const move = moves.shift();
 
-		if (!gridIsValid || move === undefined)
+		if (gridState === GRID_STATE.INVALID || move === undefined)
 		{
+			const boardStr = gridState === GRID_STATE.COMPLETE ? this.grid.toString() : "";
+
 			this.undoMove();
-			this._stack.pop();
+			this.stack.pop();
+
+			if (boardStr) return boardStr;
 		}
 		else
 		{
@@ -460,33 +477,40 @@ class Solver
 			const isStateB = move & 0x80;
 			const state = isStateB ? CELL_STATE.B : CELL_STATE.A;
 			this.playMove(idx, state);
-			this._stack.push(this.getMoves());
+			this.stack.push(this.getMoves());
 		}
+
+		return null;
 	}
 
-	private _validateLines(): boolean
+	private _validateLines(): number
 	{
-		const lines = this.grid.getLines(), half = this.grid.size / 2;
-		for (let i = 0; i < this.grid.size * 2; i++)
+		let lines = this.grid.getLines(),
+			half = this.grid.size / 2,
+			allFilled = 2,
+			i = 0;
+
+		main: for (; i < this.grid.size * 2; i++)
 		{
 			const line = lines[i];
 
 			// Check state counts per line
 			let stateCnt = this._countOnes(line[0]), filled = stateCnt;
-			if (stateCnt > half) return false;
+			if (stateCnt > half) return 0b00;
 			stateCnt = this._countOnes(line[1]);
-			if (stateCnt > half) return false;
+			if (stateCnt > half) return 0b00;
 			filled += stateCnt;
+			if (filled !== this.grid.size) allFilled = 0;
 
 			if (i && i !== this.grid.size && filled === this.grid.size)
 			{
 				// Check if consecutive lines are same
 				const prevLine = lines[i - 1];
-				if (line[0] === prevLine[0] && line[1] === prevLine[1]) return false;
+				if (line[0] === prevLine[0] && line[1] === prevLine[1]) return 0b00;
 			}
 		}
 
-		return true;
+		return allFilled | 1;
 	}
 
 	private _validateLimits(): boolean
@@ -617,9 +641,9 @@ function main()
 
 	gridData.parseStringStates(`
 		____
-		_a__
-		____
-		___a
+		baab
+		aabb
+		abba
 	`);
 	gridData.setAllLimits([
 		[15, 0],
@@ -631,9 +655,10 @@ function main()
 	// @ts-expect-error
 	window.test = function ()
 	{
-		solver.step();
-		// solver.recurseStep();
+		const res = solver.step();
 		updateGridDisplay(gridEl, gridData);
+		if (res) console.log(res);
+		return res;
 	}
 
 	updateGridDisplay(gridEl, gridData);
