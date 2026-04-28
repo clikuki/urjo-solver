@@ -2,6 +2,7 @@ const enum CELL_STATE { A, B, UNSET }
 
 interface LimitNode
 {
+	limit: number,
 	counting: number[];
 	countedBy: number[];
 }
@@ -16,13 +17,25 @@ abstract class GridData
 	public abstract setState(idx: number, state: CELL_STATE): void;
 	public abstract getLines(): [Integer, Integer][]
 
+	private limits: number[] = [];
 	private limitMap: LimitNode[] = [];
-	public getLimit(idx: number): number
+	public getLimitedCells(): readonly number[]
+	{
+		return this.limits;
+	}
+
+	public getLimitCount(idx: number): number
 	{
 		const node = this.limitMap[idx];
 		if (!node) return -1;
+		return node.limit;
+	}
 
-		return node.counting.length;
+	public getLimitNeighbors(idx: number): number[]
+	{
+		const node = this.limitMap[idx];
+		if (!node) return [];
+		return node.counting;
 	}
 
 	public getSurroundingLimits(idx: number): LimitEntry[]
@@ -38,6 +51,7 @@ abstract class GridData
 	public setAllLimits(limitList: [idx: number, limit: number][]): void
 	{
 		this.limitMap.length = 0;
+		this.limits.length = 0;
 
 		const usedIdx = new Set<number>();
 		for (const [idx, limit] of limitList)
@@ -68,18 +82,31 @@ abstract class GridData
 			if (!atRight) counting.push(idx + 1);
 			if (!atTop) counting.push(idx - this.size);
 			if (!atBottom) counting.push(idx + this.size);
-			if (!(atLeft && atTop)) counting.push(idx - this.size - 1);
-			if (!(atRight && atTop)) counting.push(idx - this.size + 1);
-			if (!(atLeft && atBottom)) counting.push(idx + this.size - 1);
-			if (!(atRight && atBottom)) counting.push(idx + this.size + 1);
+			if (!(atLeft || atTop)) counting.push(idx - this.size - 1);
+			if (!(atRight || atTop)) counting.push(idx - this.size + 1);
+			if (!(atLeft || atBottom)) counting.push(idx + this.size - 1);
+			if (!(atRight || atBottom)) counting.push(idx + this.size + 1);
 
 			usedIdx.add(idx);
 
 			if (this.limitMap[idx]) this.limitMap[idx].counting = counting;
 			else this.limitMap[idx] = {
+				limit,
 				counting,
 				countedBy: [],
 			}
+
+			for (const i of counting)
+			{
+				if (this.limitMap[i]) this.limitMap[i].countedBy.push(idx);
+				else this.limitMap[i] = {
+					limit: -1,
+					counting: [],
+					countedBy: [idx],
+				}
+			}
+
+			this.limits.push(idx);
 		}
 	}
 
