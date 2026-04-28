@@ -145,7 +145,7 @@ abstract class GridData
 
 class FourByFour extends GridData
 {
-	private data = new Uint16Array(3);
+	private data = new Uint16Array(2);
 	public size = 4;
 	public cellCnt = 16;
 
@@ -210,13 +210,13 @@ class FourByFour extends GridData
 
 class SixBySix extends GridData
 {
-	private data = new BigUint64Array(3);
+	private data = new BigUint64Array(2);
 	public size = 6;
 	public cellCnt = 36;
 
 	public getState(idx: number)
 	{
-		const mask = BigInt(1 << idx);
+		const mask = 1n << BigInt(idx);
 		const isStateA = (this.data[0] & mask) !== 0n;
 		const isStateB = (this.data[1] & mask) !== 0n;
 		if (isStateA && isStateB) throw new Error(`Invalid data, both bits at index #${idx} set.`);
@@ -228,7 +228,7 @@ class SixBySix extends GridData
 
 	public setState(idx: number, state: CELL_STATE)
 	{
-		const mask = BigInt(1 << idx);
+		const mask = 1n << BigInt(idx);
 
 		if (state === CELL_STATE.A) this.data[0] |= mask;
 		else this.data[0] &= ~mask;
@@ -287,13 +287,13 @@ class SixBySix extends GridData
 
 class EightByEight extends GridData
 {
-	private data = new BigUint64Array(3);
+	private data = new BigUint64Array(2);
 	public size = 8;
 	public cellCnt = 64;
 
 	public getState(idx: number)
 	{
-		const mask = BigInt(1 << idx);
+		const mask = 1n << BigInt(idx);
 		const isStateA = (this.data[0] & mask) !== 0n;
 		const isStateB = (this.data[1] & mask) !== 0n;
 		if (isStateA && isStateB) throw new Error(`Invalid data, both bits at index #${idx} set.`);
@@ -305,7 +305,7 @@ class EightByEight extends GridData
 
 	public setState(idx: number, state: CELL_STATE)
 	{
-		const mask = BigInt(1 << idx);
+		const mask = 1n << BigInt(idx);
 
 		if (state === CELL_STATE.A) this.data[0] |= mask;
 		else this.data[0] &= ~mask;
@@ -547,17 +547,16 @@ function updateGridDisplay(
 function main()
 {
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new FourByFour();
+	const gridData = new SixBySix();
 
 	gridData.parseStringStates(`
-		ab__
-		a___
-		____
-		____
+		a_____
+		______
+		______
+		______
+		______
+		_____a
 	`);
-	gridData.setAllLimits([
-		[0, 2]
-	])
 
 	const solver = new Solver();
 	solver.useGrid(gridData);
