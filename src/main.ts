@@ -414,7 +414,11 @@ class Solver
 
 	public validateGrid(): boolean
 	{
-		// Check lines
+		return this._validateLines() && this._validateLimits();
+	}
+
+	private _validateLines(): boolean
+	{
 		const lines = this.grid.getLines(), half = this.grid.size / 2;
 		for (let i = 0; i < this.grid.size * 2; i++)
 		{
@@ -435,7 +439,11 @@ class Solver
 			}
 		}
 
-		// Check limits
+		return true;
+	}
+
+	private _validateLimits(): boolean
+	{
 		const limitIndices = this.grid.getLimitedCells();
 		for (const idx of limitIndices)
 		{
