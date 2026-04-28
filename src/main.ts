@@ -141,6 +141,29 @@ abstract class GridData
 			this.setState(idx++, CELL_STATE.UNSET);
 		}
 	}
+
+	public toString(): string
+	{
+		let str = "";
+		for (let idx = 0; idx < this.cellCnt; idx++)
+		{
+			if (idx % this.size === 0) str += "\n";
+			const state = this.getState(idx);
+			switch (state)
+			{
+				case CELL_STATE.A:
+					str += "a";
+					break;
+				case CELL_STATE.B:
+					str += "b";
+					break;
+				case CELL_STATE.UNSET:
+					str += "_";
+					break;
+			}
+		}
+		return str;
+	}
 }
 
 class FourByFour extends GridData
@@ -392,8 +415,8 @@ class Solver
 		for (let i = 0; i < this.grid.cellCnt; i++)
 		{
 			const state = this.grid.getState(i);
-			if (state === CELL_STATE.UNSET) continue;
-			moves.push(i);
+			if (state !== CELL_STATE.UNSET) continue;
+			moves.push(i, i | 0x80);
 		}
 
 		return moves;
@@ -415,6 +438,30 @@ class Solver
 	public validateGrid(): boolean
 	{
 		return this._validateLines() && this._validateLimits();
+	}
+
+	private _stack: number[][] = [];
+	public step(): void
+	{
+		if (!this._stack.length) this._stack[0] = this.getMoves();
+
+		const gridIsValid = this.validateGrid();
+		const moves = this._stack[this._stack.length - 1];
+		const move = moves.shift();
+
+		if (!gridIsValid || move === undefined)
+		{
+			this.undoMove();
+			this._stack.pop();
+		}
+		else
+		{
+			const idx = move & 0x3f;
+			const isStateB = move & 0x80;
+			const state = isStateB ? CELL_STATE.B : CELL_STATE.A;
+			this.playMove(idx, state);
+			this._stack.push(this.getMoves());
+		}
 	}
 
 	private _validateLines(): boolean
@@ -555,20 +602,39 @@ function updateGridDisplay(
 function main()
 {
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new SixBySix();
+	const gridData = new FourByFour();
+
+	/*
+	_____a
+	______
+	______
+	______
+	_b____
+	______
+
+	[[3, 4], [25, 1], [35, 3]]
+	*/
 
 	gridData.parseStringStates(`
-		a_____
-		______
-		______
-		______
-		______
-		_____a
+		____
+		_a__
+		____
+		___a
 	`);
+	gridData.setAllLimits([
+		[15, 0],
+	]);
 
 	const solver = new Solver();
 	solver.useGrid(gridData);
-	console.log(solver.validateGrid());
+
+	// @ts-expect-error
+	window.test = function ()
+	{
+		solver.step();
+		// solver.recurseStep();
+		updateGridDisplay(gridEl, gridData);
+	}
 
 	updateGridDisplay(gridEl, gridData);
 }
