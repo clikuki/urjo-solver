@@ -11,8 +11,7 @@ type LimitEntry = [number, number[]];
 class GridData
 {
 	private data: CELL_STATE[];
-	private _lines: CELL_STATE[][];
-	private _counts: [number, number][]
+	private _lines: number[][];
 	private filledCount = 0;
 	private limits: number[] = [];
 	private limitMap: LimitNode[] = [];
@@ -20,11 +19,6 @@ class GridData
 	public get lines(): readonly CELL_STATE[][]
 	{
 		return this._lines;
-	}
-
-	public get counts(): readonly [number, number][]
-	{
-		return this._counts;
 	}
 
 	public get isFilled(): boolean
@@ -39,8 +33,14 @@ class GridData
 
 		this.cellCnt = size * size;
 		this.data = Array(this.cellCnt).fill(0).map(_ => CELL_STATE.UNSET);
-		this._lines = Array(this.size * 2).fill(0).map(_ => Array(size).fill(0).map(_ => CELL_STATE.UNSET));
-		this._counts = Array(this.size * 2).fill(0).map(_ => [0, 0]);
+		this._lines = Array(this.size) // Indices per line
+			.fill(0)
+			.map((_, x) => Array(size).fill(0).map((_, y) => x + y * size))
+			.concat(
+				Array(this.size)
+					.fill(0)
+					.map((_, y) => Array(size).fill(0).map((_, x) => x + y * size))
+			);
 	}
 
 	public getState(idx: number): CELL_STATE
@@ -51,35 +51,7 @@ class GridData
 	public setState(idx: number, state: CELL_STATE): void
 	{
 		if (this.data[idx] === state) return;
-		const prevState = this.data[idx];
 		this.data[idx] = state;
-
-		// rows and columns
-		const x = idx % this.size;
-		const y = Math.floor(idx / this.size);
-		this._lines[x][y] = state;
-		this._lines[y][x] = state;
-
-		// line counts
-		if (prevState !== CELL_STATE.UNSET)
-		{
-			this._counts[x][prevState]--;
-			this._counts[y + 4][prevState]--;
-		}
-		else
-		{
-			this.filledCount++;
-		}
-
-		if (state !== CELL_STATE.UNSET)
-		{
-			this._counts[x][state]++;
-			this._counts[y + 4][state]++;
-		}
-		else
-		{
-			this.filledCount--;
-		}
 	}
 
 	public getLimitedCells(): readonly number[]
@@ -99,16 +71,6 @@ class GridData
 		const node = this.limitMap[idx];
 		if (!node) return [];
 		return node.counting;
-	}
-
-	public getSurroundingLimits(idx: number): LimitEntry[]
-	{
-		const node = this.limitMap[idx];
-		if (!node) return [];
-
-		const limitSet: LimitEntry[] = node.countedBy.map(idx => [idx, this.limitMap[idx].counting]);
-		if (node.counting.length) limitSet.push([idx, node.counting]);
-		return limitSet;
 	}
 
 	public setAllLimits(limitList: [idx: number, limit: number][]): void
@@ -263,7 +225,7 @@ class Solver
 	private grid: GridData;
 	private moveIndices: number[] = [];
 	private emptyIndices: number[] = [];
-	private domains: CELL_STATE[][] = [];
+	private domains: [boolean, boolean][] = [];
 	private constraints = new Map<number, Constraint[]>();
 
 	public useGrid(grid: GridData)
@@ -275,16 +237,54 @@ class Solver
 		this.constraints.clear();
 		this._setConstraints();
 
+		console.log(this.constraints);
+
 		for (let idx = 0; idx < grid.cellCnt; idx++)
 		{
 			const state = grid.getState(idx);
 			if (state === CELL_STATE.UNSET)
 			{
 				this.emptyIndices.push(idx);
-				this.domains[idx] = [CELL_STATE.A, CELL_STATE.B];
+				this.domains[idx] = [true, true];
 				this._updateDomain(idx);
 			}
 		}
+
+		console.log(this.domains);
+	}
+
+	public setCell(idx: number, state: CELL_STATE): void
+	{
+		this.grid.setState(idx, state);
+		this.moveIndices.push(idx);
+	}
+
+	public undoCell(): void
+	{
+		if (!this.moveIndices.length) return;
+		const idx = this.moveIndices.pop()!;
+		this.grid.setState(idx, CELL_STATE.UNSET);
+	}
+
+	public step(): null | string
+	{
+		const { entropy, indices } = this._findLeastEntropy();
+
+		if (entropy === 0)
+		{
+			throw new Error("Entropy is zero; backtracking not yet implemented");
+		}
+
+		if (entropy === 1)
+		{
+			for (const idx of indices)
+			{
+				const state = this.domains[idx][0] ? CELL_STATE.A : CELL_STATE.B;
+				this.grid.setState(idx, state);
+			}
+		}
+
+		return null;
 	}
 
 	private _setConstraints(): void
@@ -339,44 +339,25 @@ class Solver
 		}
 	}
 
-	private _pushToMapArr(key: number, cons: Constraint)
-	{
-		let list = this.constraints.get(key);
-		if (!list)
-		{
-			list = [];
-			this.constraints.set(key, list);
-		}
-		list.push(cons);
-	}
-
 	private _updateDomain(idx: number): void
 	{
 		const domain = this.domains[idx];
 		const constraints = this.constraints.get(idx)!;
-		const newDomain: CELL_STATE[] = [];
-		for (const state of domain)
+		for (let stateIdx = 0; stateIdx < 2; stateIdx++)
 		{
-			let keepInDomain = true;
-
-			this.setCell(idx, state);
+			this.setCell(idx, stateIdx ? CELL_STATE.B : CELL_STATE.A);
 
 			for (const constraint of constraints)
 			{
 				if (constraint.type === "LINE")
 				{
-					let isSame = true;
-					for (let i = 0; isSame && i < this.grid.size; i++)
+					domain[stateIdx] = false; // Assume false, until case disproves
+					for (let i = 0; i < this.grid.size; i++)
 					{
 						const a = this.grid.getState(constraint.a[i])
 						const b = this.grid.getState(constraint.b[i])
 						if (a === b && a !== CELL_STATE.UNSET) continue;
-						isSame = false;
-					}
-
-					if (!isSame)
-					{
-						keepInDomain = false;
+						domain[stateIdx] = true;
 						break;
 					}
 				}
@@ -395,35 +376,55 @@ class Solver
 					const cntA = counts[CELL_STATE.A],
 						cntB = counts[CELL_STATE.B],
 						cntU = counts[CELL_STATE.UNSET];
-					if (cntA > limit || cntB > limit) keepInDomain = false;
-					else if (sourceState === CELL_STATE.A && cntU + cntA < limit) keepInDomain = false;
-					else if (sourceState === CELL_STATE.B && cntU + cntB < limit) keepInDomain = false;
+					if (sourceState !== CELL_STATE.B && cntA > limit) domain[stateIdx] = false;
+					else if (sourceState !== CELL_STATE.A && cntB > limit) domain[stateIdx] = false;
+					else if (sourceState === CELL_STATE.A && cntU + cntA < limit) domain[stateIdx] = false;
+					else if (sourceState === CELL_STATE.B && cntU + cntB < limit) domain[stateIdx] = false;
 				}
 				else throw new Error("Invalid constraint during domain setting.");
+
+				if (!domain[stateIdx]) break;
 			}
 
 			this.undoCell();
-
-			if (keepInDomain) newDomain.push(state);
 		}
 	}
 
-	public setCell(idx: number, state: CELL_STATE): void
+	private _findLeastEntropy(): { entropy: number, indices: number[] }
 	{
-		this.grid.setState(idx, state);
-		this.moveIndices.push(idx);
+		let lowestEntropy = Infinity;
+		const lowestCells: number[] = [];
+		for (const idx of this.emptyIndices)
+		{
+			const domain = this.domains[idx];
+			const entropy = +domain[0] + +domain[1];
+
+			if (entropy < lowestEntropy)
+			{
+				lowestEntropy = entropy;
+				if (entropy === 0) break; // If zero, then state is invalid, discard immediately
+
+				lowestCells.length = 0;
+				lowestCells[0] = idx;
+			}
+			else if (entropy === lowestEntropy)
+			{
+				lowestCells.push(idx);
+			}
+		}
+
+		return { entropy: lowestEntropy, indices: lowestCells };
 	}
 
-	public undoCell(): void
+	private _pushToMapArr(key: number, cons: Constraint)
 	{
-		if (!this.moveIndices.length) return;
-		const idx = this.moveIndices.pop()!;
-		this.grid.setState(idx, CELL_STATE.UNSET);
-	}
-
-	public step(): null | string
-	{
-		return null;
+		let list = this.constraints.get(key);
+		if (!list)
+		{
+			list = [];
+			this.constraints.set(key, list);
+		}
+		list.push(cons);
 	}
 }
 
