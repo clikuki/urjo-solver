@@ -229,37 +229,183 @@ class GridData
 	}
 }
 
-const enum GRID_STATE
+/**
+ * NEW PLAN
+ * 1. Propagate constraints
+ * 2. Locate cells with smallest domains
+ * 3. If smallest domain == 0, backtrack to previous state save
+ * 4. If smallest domain == 1,
+ * 	-		set those cells to those domains
+ * 5. Otherwise,
+ * 	-		add state save
+ * 	-		pick cell to collapse
+ * 	-		if all cells already tried, backtrack to previous state save
+ * 6. Propagate neighbors
+ * 7. Return to step 2
+ */
+
+interface LineConstraint
 {
-	INPROGRESS,
-	INVALID,
-	COMPLETE,
+	type: "LINE";
+	a: number[];
+	b: number[];
 }
+interface LimitConstraint
+{
+	type: "LIMIT";
+	source: number;
+	count: number;
+	counting: number[];
+}
+type Constraint = LineConstraint | LimitConstraint;
 class Solver
 {
 	private grid: GridData;
 	private moveIndices: number[] = [];
-	private stack: number[][] = [];
+	private emptyIndices: number[] = [];
+	private domains: CELL_STATE[][] = [];
+	private constraints = new Map<number, Constraint[]>();
 
 	public useGrid(grid: GridData)
 	{
 		this.grid = grid;
 		this.moveIndices.length = 0;
-		this.stack[0] = this.getMoves()
+		this.emptyIndices.length = 0;
+		this.domains.length = 0;
+		this.constraints.clear();
+		this._setConstraints();
+
+		for (let idx = 0; idx < grid.cellCnt; idx++)
+		{
+			const state = grid.getState(idx);
+			if (state === CELL_STATE.UNSET)
+			{
+				this.emptyIndices.push(idx);
+				this.domains[idx] = [CELL_STATE.A, CELL_STATE.B];
+				this._updateDomain(idx);
+			}
+		}
 	}
 
-	public getMoves(): number[]
+	private _setConstraints(): void
 	{
-		const moves: number[] = [];
-
-		for (let i = 0; i < this.grid.cellCnt; i++)
+		const constraintsList: Constraint[] = [];
+		const lines = this.grid.lines;
+		for (let i = 1; i < this.grid.size; i++)
 		{
-			const state = this.grid.getState(i);
-			if (state !== CELL_STATE.UNSET) continue;
-			moves.push(i, i | 0x80);
+			constraintsList.push({
+				type: "LINE",
+				a: lines[i],
+				b: lines[i - 1],
+			}, {
+				type: "LINE",
+				a: lines[i + 4],
+				b: lines[i + 3],
+			});
 		}
 
-		return moves;
+		const limitIndices = this.grid.getLimitedCells();
+		for (const idx of limitIndices)
+		{
+			const limit = this.grid.getLimitCount(idx);
+			const neighbors = this.grid.getLimitNeighbors(idx);
+			constraintsList.push({
+				type: "LIMIT",
+				source: idx,
+				count: limit,
+				counting: neighbors,
+			})
+		}
+
+		for (const constraint of constraintsList)
+		{
+			if (constraint.type === "LINE")
+			{
+				for (let i = 0; i < this.grid.size; i++)
+				{
+					this._pushToMapArr(constraint.a[i], constraint);
+					this._pushToMapArr(constraint.b[i], constraint);
+				}
+			}
+			else if (constraint.type === "LIMIT")
+			{
+				this._pushToMapArr(constraint.source, constraint);
+				for (const idx of constraint.counting)
+				{
+					this._pushToMapArr(idx, constraint);
+				}
+			}
+			else throw new Error("Unhandled constraint during creation.");
+		}
+	}
+
+	private _pushToMapArr(key: number, cons: Constraint)
+	{
+		let list = this.constraints.get(key);
+		if (!list)
+		{
+			list = [];
+			this.constraints.set(key, list);
+		}
+		list.push(cons);
+	}
+
+	private _updateDomain(idx: number): void
+	{
+		const domain = this.domains[idx];
+		const constraints = this.constraints.get(idx)!;
+		const newDomain: CELL_STATE[] = [];
+		for (const state of domain)
+		{
+			let keepInDomain = true;
+
+			this.setCell(idx, state);
+
+			for (const constraint of constraints)
+			{
+				if (constraint.type === "LINE")
+				{
+					let isSame = true;
+					for (let i = 0; isSame && i < this.grid.size; i++)
+					{
+						const a = this.grid.getState(constraint.a[i])
+						const b = this.grid.getState(constraint.b[i])
+						if (a === b && a !== CELL_STATE.UNSET) continue;
+						isSame = false;
+					}
+
+					if (!isSame)
+					{
+						keepInDomain = false;
+						break;
+					}
+				}
+				else if (constraint.type === "LIMIT")
+				{
+					const limit = constraint.count;
+					const sourceState = this.grid.getState(constraint.source);
+
+					const counts = [0, 0, 0];
+					for (const i of constraint.counting)
+					{
+						const state = this.grid.getState(i);
+						counts[state]++;
+					}
+
+					const cntA = counts[CELL_STATE.A],
+						cntB = counts[CELL_STATE.B],
+						cntU = counts[CELL_STATE.UNSET];
+					if (cntA > limit || cntB > limit) keepInDomain = false;
+					else if (sourceState === CELL_STATE.A && cntU + cntA < limit) keepInDomain = false;
+					else if (sourceState === CELL_STATE.B && cntU + cntB < limit) keepInDomain = false;
+				}
+				else throw new Error("Invalid constraint during domain setting.");
+			}
+
+			this.undoCell();
+
+			if (keepInDomain) newDomain.push(state);
+		}
 	}
 
 	public setCell(idx: number, state: CELL_STATE): void
@@ -275,114 +421,9 @@ class Solver
 		this.grid.setState(idx, CELL_STATE.UNSET);
 	}
 
-	public validateGrid(): boolean
-	{
-		return this._validateLines() && this._validateLimits();
-	}
-
 	public step(): null | string
 	{
-		if (!this.stack.length) return null;
-
-		const gridIsValid = this.validateGrid();
-		const moves = this.stack[this.stack.length - 1];
-		const move = moves.shift();
-
-		console.log(gridIsValid);
-
-		if (!gridIsValid || move === undefined)
-		{
-			// Log complete state
-			const boardStr = this.grid.isFilled ? this.grid.toString() : "";
-
-			this.undoCell();
-			this.stack.pop();
-
-			if (boardStr) return boardStr;
-		}
-		else
-		{
-			const idx = move & 0x3f;
-			const isStateB = move & 0x80;
-			const state = isStateB ? CELL_STATE.B : CELL_STATE.A;
-			this.setCell(idx, state);
-			this.stack.push(this.getMoves());
-		}
-
 		return null;
-	}
-
-	private _validateLines(): boolean
-	{
-		const { counts, lines, size } = this.grid;
-		const half = size / 2;
-
-		for (const [countA, countB] of counts)
-		{
-			if (countA > half || countB > half) return false;
-		}
-
-		// Check if consecutive lines are same
-		line: for (let i = 1; i < lines.length; i++)
-		{
-			const line = lines[i];
-			const prevLine = lines[i - 1];
-
-			if (i !== size)
-			{
-				for (let j = 0; j < size; j++)
-				{
-					if (line[j] === CELL_STATE.UNSET || line[j] !== prevLine[j]) continue line;
-				}
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	private _validateLimits(): boolean
-	{
-		const limitIndices = this.grid.getLimitedCells();
-		for (const idx of limitIndices)
-		{
-			const limit = this.grid.getLimitCount(idx);
-			const state = this.grid.getState(idx);
-			const neighbors = this.grid.getLimitNeighbors(idx);
-
-			let cntA = 0, cntB = 0, cntU = 0;
-			for (const i of neighbors)
-			{
-				const state = this.grid.getState(i);
-				switch (state)
-				{
-					case CELL_STATE.A:
-						++cntA;
-						break;
-					case CELL_STATE.B:
-						++cntB;
-						break;
-					case CELL_STATE.UNSET:
-						++cntU;
-						break;
-				}
-			}
-
-			if (state === CELL_STATE.A)
-			{
-				if (cntA > limit || cntU + cntA < limit) return false;
-			}
-			else if (state === CELL_STATE.B)
-			{
-				if (cntB > limit || cntU + cntB < limit) return false;
-			}
-			else
-			{
-				if (cntA > limit && cntB > limit) return false;
-			}
-		}
-
-		return true;
 	}
 }
 
