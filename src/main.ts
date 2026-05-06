@@ -227,6 +227,8 @@ class Solver
 	private emptyIndices: number[] = [];
 	private domains: [boolean, boolean][] = [];
 	private constraints = new Map<number, Constraint[]>();
+	private pendingIndices: number[] = [];
+	private prePendingIndices = new Set<number>();
 
 	public useGrid(grid: GridData)
 	{
@@ -236,8 +238,6 @@ class Solver
 		this.domains.length = 0;
 		this.constraints.clear();
 		this._setConstraints();
-
-		console.log(this.constraints);
 
 		for (let idx = 0; idx < grid.cellCnt; idx++)
 		{
@@ -249,8 +249,6 @@ class Solver
 				this._updateDomain(idx);
 			}
 		}
-
-		console.log(this.domains);
 	}
 
 	public setCell(idx: number, state: CELL_STATE): void
@@ -274,15 +272,24 @@ class Solver
 		{
 			throw new Error("Entropy is zero; backtracking not yet implemented");
 		}
-
-		if (entropy === 1)
+		else if (entropy === 1)
 		{
+
 			for (const idx of indices)
 			{
 				const state = this.domains[idx][0] ? CELL_STATE.A : CELL_STATE.B;
 				this.grid.setState(idx, state);
+				this.prePendingIndices.add(idx);
 			}
+
+			this.pendingIndices = this.pendingIndices.concat(...this.prePendingIndices);
+			this.prePendingIndices.clear();
 		}
+		else
+		{
+			throw new Error("Entropy is greater than 1; path not implemented");
+		}
+
 
 		return null;
 	}
@@ -387,6 +394,15 @@ class Solver
 			}
 
 			this.undoCell();
+		}
+	}
+
+	private _updatePendingDomains(): void
+	{
+		while (this.pendingIndices)
+		{
+			const idx = this.pendingIndices.pop();
+
 		}
 	}
 
