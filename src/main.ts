@@ -229,7 +229,7 @@ type Constraint = LineConstraint | LimitConstraint;
 class Solver
 {
 	public isComplete = false;
-	public stopAfterFirstSolution = false;
+	public stopAfterFirstSolution = true;
 	public solutions: string[] = [];
 
 	private grid: GridData;
@@ -302,9 +302,13 @@ class Solver
 			// Either 1. dead-end (entropy = 0) or 2. one solution found (entropy = 3)
 			// Either case, backtrack to last collapse point
 
-			if(entropy !== 0) {
+			if(entropy !== 0 && this._isValid()) {
 				this.solutions.push(this.grid.toString());
-				if(this.stopAfterFirstSolution) return;
+				console.log(this.solutions.at(-1));
+				if(this.stopAfterFirstSolution) {
+					this.isComplete = true;
+					return;
+				}
 			}
 
 			let collapsed: CollapsePoint | undefined;
@@ -546,6 +550,64 @@ class Solver
 		return { entropy: lowestEntropy, indices: lowestCells };
 	}
 
+	private _isValid(): boolean
+	{
+		for(let idx = 0; idx < this.grid.cellCnt; idx++) {
+			const constraints = this.allConstraints.get(idx)!;
+			main: for (const constraint of constraints)
+			{
+				switch(constraint.type) {
+					case "LINE": {
+						const containing = constraint.a.includes(idx) ? constraint.a : constraint.b,
+							counts = [0, 0, 0],
+							half = this.grid.size / 2;
+						for(const i of containing) {
+							const state = this.grid.getState(i);
+							counts[state]++;
+						}
+
+						if(counts[CELL_STATE.A] > half || counts[CELL_STATE.B] > half) return false;
+						
+						for (let i = 0; i < this.grid.size; i++)
+						{
+							const a = this.grid.getState(constraint.a[i])
+							const b = this.grid.getState(constraint.b[i])
+							if (a === b && a !== CELL_STATE.UNSET) continue;
+							continue main;
+						}
+						return false; }
+
+					case "LIMIT": {
+						const limit = constraint.count;
+						const sourceState = this.grid.getState(constraint.source);
+
+						const counts = [0, 0, 0];
+						for (const i of constraint.counting)
+						{
+							const state = this.grid.getState(i);
+							counts[state]++;
+						}
+
+						const cntA = counts[CELL_STATE.A],
+							cntB = counts[CELL_STATE.B],
+							cntU = counts[CELL_STATE.UNSET];
+						if (sourceState !== CELL_STATE.B && cntA > limit) return false;
+						else if (sourceState !== CELL_STATE.A && cntB > limit) return false;
+						else if (sourceState === CELL_STATE.A && cntU + cntA < limit) return false;
+						else if (sourceState === CELL_STATE.B && cntU + cntB < limit) return false;
+						break; }
+
+					default: throw new Error("Invalid constraint during whole validation.");
+				}
+					
+
+				this.grid.setState(idx, CELL_STATE.UNSET);
+			}
+		}
+
+		return true;
+	}
+
 	private _pushToMapArr(key: number, cons: Constraint)
 	{
 		let list = this.allConstraints.get(key);
@@ -618,19 +680,28 @@ function main()
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
 	const gridData = new GridData(6);
 
+	// gridData.parseStringStates(`
+	// 	_____a
+	// 	______
+	// 	______
+	// 	______
+	// 	_b____
+	// 	______
+	// `);
+	// gridData.setAllLimits([
+	// 	[3, 4],
+	// 	[25, 1],
+	// 	[35, 3],
+	// ]);
+
 	gridData.parseStringStates(`
-		_____a
+		_bbb__
+		_bab_b
+		_bbb__
 		______
 		______
-		______
-		_b____
 		______
 	`);
-	gridData.setAllLimits([
-		[3, 4],
-		[25, 1],
-		[35, 3],
-	]);
 
 	const solver = new Solver();
 	solver.useGrid(gridData);
