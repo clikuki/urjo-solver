@@ -260,6 +260,8 @@ class Solver
 				this._updateDomain(idx);
 			}
 		}
+
+		// console.log(Object.fromEntries(this.allConstraints.entries()));
 	}
 
 	public step(): void
@@ -291,10 +293,10 @@ class Solver
 
 			this.grid.setState(idx, this._getStateToUse(idx));
 			this._updateSurroundingDomain([idx]);
-			for(let i = 0; i < this.grid.cellCnt; i++){
-				if(this.grid.getState(i) !== CELL_STATE.UNSET) continue;
-				console.log(`${i} : `, this.domains[i]);
-			}
+			// for(let i = 0; i < this.grid.cellCnt; i++){
+			// 	if(this.grid.getState(i) !== CELL_STATE.UNSET) continue;
+			// 	console.log(`${i} : `, this.domains[i]);
+			// }
 		}
 		else {
 			// Either 1. dead-end (entropy = 0) or 2. one solution found (entropy = 3)
@@ -308,12 +310,13 @@ class Solver
 			let collapsed: CollapsePoint | undefined;
 			while(!collapsed) {
 				collapsed = this.collapseStack.at(-1);
+				// console.log(collapsed);
 				if(!collapsed) {
 					this.isComplete = true;
 					return;
 				}
 
-				const idx = indices.pop();
+				const idx = collapsed.lowest.pop();
 				if(idx !== undefined) {
 					this.grid.parseStringStates(collapsed.grid);
 					this.domains = JSON.parse(collapsed.domain);
@@ -326,6 +329,8 @@ class Solver
 				}
 			}
 		}
+
+		// console.log(this.collapseStack.length, this.collapseStack)
 	}
 
 	private _getStateToUse(idx: number): CELL_STATE {
@@ -345,8 +350,8 @@ class Solver
 				b: lines[i - 1],
 			}, {
 				type: "LINE",
-				a: lines[i + 4],
-				b: lines[i + 3],
+				a: lines[i + this.grid.size],
+				b: lines[i + this.grid.size - 1],
 			});
 		}
 
@@ -391,6 +396,15 @@ class Solver
 	private _updateSurroundingDomain(indices: number[]): void {
 		const affected: boolean[] = [];
 		for(const idx of indices) this._setAffected(idx, affected);
+		
+		if(indices[0] === 33) {
+			const initUpdate = [];
+			for(let i = 0; i < this.grid.cellCnt; i++) {
+				if(!affected[i] || this.grid.getState(i) !== CELL_STATE.UNSET) continue;
+				initUpdate.push(i);
+			}
+			console.log(...initUpdate);
+		}
 
 		let updated;
 		do {
@@ -409,6 +423,8 @@ class Solver
 	}
 
 	private _setAffected(idx: number, affected: boolean[]): void {
+		if(idx === 33 && this.grid.getState(33) === CELL_STATE.A) debugger;
+
 		const constraints = this.allConstraints.get(idx)!;
 		for(const constraint of constraints) {
 			switch(constraint.type) {
@@ -430,6 +446,8 @@ class Solver
 
 	private _updateDomain(idx: number): boolean
 	{
+		if(idx === 32 && this.grid.getState(33) === CELL_STATE.A) debugger;
+
 		const domain = this.domains[idx];
 		const constraints = this.allConstraints.get(idx)!;
 		let changed = false;
@@ -598,27 +616,20 @@ function updateGridDisplay(
 function main()
 {
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new GridData(4);
-
-	/*
-	_____a
-	______
-	______
-	______
-	_b____
-	______
-
-	[[3, 4], [25, 1], [35, 3]]
-	*/
+	const gridData = new GridData(6);
 
 	gridData.parseStringStates(`
-		____
-		_a__
-		____
-		___a
+		_____a
+		______
+		______
+		______
+		_b____
+		______
 	`);
 	gridData.setAllLimits([
-		[15, 0],
+		[3, 4],
+		[25, 1],
+		[35, 3],
 	]);
 
 	const solver = new Solver();
