@@ -23,6 +23,22 @@ main {
 	padding: 1rem;
 }
 
+button {
+	width: min-content;
+	padding: .3rem 1rem;
+	border: 1px solid white;
+	border-radius: 5px;
+	color: white;
+	background-color: transparent;
+	font-family: monospace;
+	font-size: 2rem;
+}
+
+.controls {
+	display: flex;
+	gap: 1rem;
+}
+
 .grid {
 	--size: 4;
 	margin: auto;
@@ -86,15 +102,4 @@ main {
 
 .cell[data-state=B] {
 	background-color: var(--color-b);
-}
-
-#step {
-	width: min-content;
-	padding: .3rem 1rem;
-	border: 1px solid white;
-	border-radius: 5px;
-	color: white;
-	background-color: transparent;
-	font-family: monospace;
-	font-size: 2rem;
 }
