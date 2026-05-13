@@ -136,8 +136,6 @@ class GridData
 
 			this.limits.push(idx);
 		}
-
-		console.log(this.limitMap);
 	}
 
 	public countNeighbors(): [number, number][] {
@@ -250,10 +248,15 @@ interface CollapsePoint {
 	domain: string,
 }
 
-type LocalConstraint = LineConstraint | LimitConstraint;
+type Constraint = LineConstraint | AdjacencyConstraint | LimitConstraint;
 interface LineConstraint
 {
 	type: "LINE";
+	line: number[];
+}
+interface AdjacencyConstraint
+{
+	type: "ADJACENT";
 	a: number[];
 	b: number[];
 }
@@ -265,17 +268,6 @@ interface LimitConstraint
 	counting: number[];
 }
 
-type GlobalConstraints = QuadrantConstraint;
-interface QuadrantConstraint
-{
-	// inferred rule, used for domain collapse but not final grid validation
-	type: "QUADRANT";
-	tl: number[];
-	tr: number[];
-	bl: number[];
-	br: number[];
-}
-
 class Solver
 {
 	public isComplete = false;
@@ -285,16 +277,15 @@ class Solver
 	private grid: GridData;
 	private collapseStack: CollapsePoint[] = [];
 	private domains: Record<CELL_STATE.A | CELL_STATE.B, boolean>[] = [];
-	private globalConstraints: GlobalConstraints[] = [];
-	private localConstraints = new Map<number, LocalConstraint[]>();
+	private allConstraints: Constraint[] = [];
+	private localConstraints = new Map<number, Constraint[]>();
 
 	public useGrid(grid: GridData)
 	{
 		this.grid = grid;
 		this.collapseStack.length = 0;
 		this.domains.length = 0;
-		this._createGlobalConstraints();
-		this._createLocalConstraints();
+		this._createConstraints();
 
 		const emptyIndices: number[] = [];
 		for (let idx = 0; idx < grid.cellCnt; idx++)
@@ -393,22 +384,32 @@ class Solver
 		else return CELL_STATE.B;
 	}
 
-	private _createLocalConstraints(): void
+	private _createConstraints(): void
 	{
+		this.allConstraints.length = 0;
 		this.localConstraints.clear();
 
-		const constraintsList: LocalConstraint[] = [];
-		const lines = this.grid.lines;
-		for (let i = 1; i < this.grid.size; i++)
-		{
-			constraintsList.push({
+		const lines = this.grid.lines, size = this.grid.size;
+		for (let i = 0; i < size; i++) {
+			this.allConstraints.push({
 				type: "LINE",
+				line: lines[i],
+			}, {
+				type: "LINE",
+				line: lines[i + size],
+			})
+		}
+
+		for (let i = 1; i < size; i++)
+		{
+			this.allConstraints.push({
+				type: "ADJACENT",
 				a: lines[i],
 				b: lines[i - 1],
 			}, {
-				type: "LINE",
-				a: lines[i + this.grid.size],
-				b: lines[i + this.grid.size - 1],
+				type: "ADJACENT",
+				a: lines[i + size],
+				b: lines[i + size - 1],
 			});
 		}
 
@@ -417,7 +418,7 @@ class Solver
 		{
 			const limit = this.grid.getLimitCount(idx);
 			const neighbors = this.grid.getLimitNeighbors(idx);
-			constraintsList.push({
+			this.allConstraints.push({
 				type: "LIMIT",
 				source: idx,
 				count: limit,
@@ -425,11 +426,18 @@ class Solver
 			})
 		}
 
-		for (const constraint of constraintsList)
+		for (const constraint of this.allConstraints)
 		{
 			switch(constraint.type) {
 				case "LINE":
-					for (let i = 0; i < this.grid.size; i++)
+					for (const idx of constraint.line)
+					{
+						this._pushToMapArr(idx, constraint);
+					}
+					break;
+
+				case "ADJACENT":
+					for (let i = 0; i < size; i++)
 					{
 						this._pushToMapArr(constraint.a[i], constraint);
 						this._pushToMapArr(constraint.b[i], constraint);
@@ -448,34 +456,6 @@ class Solver
 					throw new Error("Unhandled constraint during creation.");
 			}
 		}
-	}
-
-	private _createGlobalConstraints(): void {
-		this.globalConstraints.length = 0;
-
-		for(let x = 0, y, half = this.grid.size / 2; x < half; x++) {
-			for(y = 0; y < half; y++) {
-				const tl = this._getQuadrant(x       , y       ),
-					  tr = this._getQuadrant(x + half, y       ),
-					  bl = this._getQuadrant(x       , y + half),
-					  br = this._getQuadrant(x + half, y + half);
-				
-				this.globalConstraints.push({ type: "QUADRANT", tl, tr, bl, br });
-			}
-		}
-	}
-
-	private _getQuadrant(ox: number, oy: number): number[] {
-		const quadrant: number[] = [];
-		let ix = 0, iy, size = this.grid.size, half = size / 2;
-		for(; ix < half; ix++) {
-			for(iy = 0; iy < half; iy++) {
-				const x = (ix + ox) % size;
-				const y = (iy + oy) % size;
-				quadrant.push(x + y * size);
-			}
-		}
-		return quadrant;
 	}
 
 	private _updateSurroundingDomain(indices: number[]): void {
@@ -512,8 +492,10 @@ class Solver
 		for(const constraint of constraints) {
 			switch(constraint.type) {
 				case "LINE":
-					const containing = constraint.a.includes(idx) ? constraint.a : constraint.b;
-					for(const i of containing) affected[i] = true;
+					for(const i of constraint.line) affected[i] = true;
+					break;
+
+				case "ADJACENT":
 					break;
 
 				case "LIMIT":
@@ -541,25 +523,27 @@ class Solver
 			for (const constraint of constraints)
 			{
 				switch(constraint.type) {
-					case "LINE":{
-						const containing = constraint.a.includes(idx) ? constraint.a : constraint.b,
-							counts = [0, 0, 0],
+					case "LINE": {
+						const counts = [0, 0],
 							half = this.grid.size / 2;
-						for(const i of containing) {
-							const state = this.grid.getState(i);
-							counts[state]++;
-						}
-						
-						domain[state] = false;
-						if(counts[CELL_STATE.A] <= half  && counts[CELL_STATE.B] <= half) {
-							for (let i = 0; i < this.grid.size; i++)
-							{
-								const a = this.grid.getState(constraint.a[i])
-								const b = this.grid.getState(constraint.b[i])
-								if (a === b && a !== CELL_STATE.UNSET) continue;
-								domain[state] = true;
+						for(const i of constraint.line) {
+							const cellState = this.grid.getState(i);
+							if(cellState !== CELL_STATE.UNSET && ++counts[cellState] > half) {
+								domain[state] = false;
 								break;
 							}
+						}
+						break;}
+
+					case "ADJACENT":{
+						domain[state] = false;
+						for (let i = 0; i < this.grid.size; i++)
+						{
+							const a = this.grid.getState(constraint.a[i])
+							const b = this.grid.getState(constraint.b[i])
+							if (a === b && a !== CELL_STATE.UNSET) continue;
+							domain[state] = true;
+							break;
 						}
 						break;}
 
@@ -575,11 +559,11 @@ class Solver
 						}
 
 						const cntA = counts[CELL_STATE.A],
-							cntB = counts[CELL_STATE.B],
-							cntU = counts[CELL_STATE.UNSET];
-						if (sourceState !== CELL_STATE.B && cntA > limit) domain[state] = false;
-						else if (sourceState !== CELL_STATE.A && cntB > limit) domain[state] = false;
-						else if (sourceState === CELL_STATE.A && cntU + cntA < limit) domain[state] = false;
+							  cntB = counts[CELL_STATE.B],
+							  cntU = counts[CELL_STATE.UNSET];
+						// if(idx === 4) debugger;
+
+						if (sourceState === CELL_STATE.A && cntU + cntA < limit) domain[state] = false;
 						else if (sourceState === CELL_STATE.B && cntU + cntB < limit) domain[state] = false;
 						break;}
 
@@ -589,66 +573,6 @@ class Solver
 				if (!domain[state]) {
 					changed = true;
 					break;
-				}
-			}
-
-			if(domain[state]) {
-				const quadCounts = new Map<number[], [number, number]>(),
-					full = (this.grid.size / 2) ** 2;
-				for(const constraint of this.globalConstraints) {
-					switch(constraint.type) {
-						case "QUADRANT":
-							for(const quad of [constraint.tl, constraint.tr, constraint.bl, constraint.br]) {
-								const counts = [0, 0, 0];
-								for (const i of quad)
-								{
-									const state = this.grid.getState(i);
-									counts[state]++;
-								}
-								
-								quadCounts.set(quad, [counts[CELL_STATE.A], counts[CELL_STATE.B]]);
-							}
-
-							const matches: [number[], number[], boolean][] = [
-								[constraint.tl, constraint.br, true],
-								[constraint.tr, constraint.bl, true],
-								[constraint.tl, constraint.tr, false],
-								[constraint.bl, constraint.br, false],
-								[constraint.tl, constraint.bl, false],
-								[constraint.tr, constraint.br, false],
-							] 
-							for(const [a, b, isDiagonal] of matches) {
-								const cntA = quadCounts.get(a)!;
-								let cntB = quadCounts.get(b)!;
-								const sumA = cntA[0] + cntA[1];
-								const sumB = cntB[0] + cntB[1];
-								if(!isDiagonal) cntB = [cntB[1], cntB[0]];
-
-								if(sumA === full && sumB === full) {
-									if(cntA[0] !== cntB[0]) domain[state] = false;
-									else if(cntA[1] !== cntB[1]) domain[state] = false;
-								}
-								else if(sumA === full) {
-									if(cntB[0] > cntA[0]) domain[state] = false;
-									else if(cntB[1] > cntA[1]) domain[state] = false;
-								}
-								else if(sumB === full) {
-									if(cntA[0] > cntB[0]) domain[state] = false;
-									else if(cntA[1] > cntB[1]) domain[state] = false;
-								}
-
-								if(!domain[state]) debugger;
-							}
-
-							break;
-
-						default: throw new Error("Invalid global constraint during domain collapse.");
-					}
-
-					if (!domain[state]) {
-						changed = true;
-						break;
-					}
 				}
 			}
 
@@ -688,63 +612,58 @@ class Solver
 
 	private _isValid(): boolean
 	{
-		for(let idx = 0; idx < this.grid.cellCnt; idx++) {
-			const constraints = this.localConstraints.get(idx)!;
-			main: for (const constraint of constraints)
-			{
-				switch(constraint.type) {
-					case "LINE": {
-						const containing = constraint.a.includes(idx) ? constraint.a : constraint.b,
-							counts = [0, 0, 0],
-							half = this.grid.size / 2;
-						for(const i of containing) {
-							const state = this.grid.getState(i);
-							counts[state]++;
+		if(this.grid.toString() === "bbab\nbaba\naabb\nbbaa") debugger;
+
+		main: for(const constraint of this.allConstraints) {
+			switch(constraint.type) {
+				case "LINE": {
+					const counts = [0, 0],
+						half = this.grid.size / 2;
+					for(const i of constraint.line) {
+						const cellState = this.grid.getState(i);
+						if(cellState !== CELL_STATE.UNSET && ++counts[cellState] > half) {
+							return false;
 						}
+					}
+					break; }
 
-						if(counts[CELL_STATE.A] > half || counts[CELL_STATE.B] > half) return false;
-						
-						for (let i = 0; i < this.grid.size; i++)
-						{
-							const a = this.grid.getState(constraint.a[i])
-							const b = this.grid.getState(constraint.b[i])
-							if (a === b && a !== CELL_STATE.UNSET) continue;
-							continue main;
-						}
-						return false; }
+				case "ADJACENT": {
+					for (let i = 0; i < this.grid.size; i++)
+					{
+						const a = this.grid.getState(constraint.a[i])
+						const b = this.grid.getState(constraint.b[i])
+						if (a === b && a !== CELL_STATE.UNSET) continue;
+						continue main;
+					}
+					return false; }
 
-					case "LIMIT": {
-						const limit = constraint.count;
-						const sourceState = this.grid.getState(constraint.source);
+				case "LIMIT": {
+					const limit = constraint.count;
+					const sourceState = this.grid.getState(constraint.source);
 
-						const counts = [0, 0, 0];
-						for (const i of constraint.counting)
-						{
-							const state = this.grid.getState(i);
-							counts[state]++;
-						}
+					const counts = [0, 0, 0];
+					for (const i of constraint.counting)
+					{
+						const state = this.grid.getState(i);
+						counts[state]++;
+					}
 
-						const cntA = counts[CELL_STATE.A],
-							cntB = counts[CELL_STATE.B],
-							cntU = counts[CELL_STATE.UNSET];
-						if (sourceState !== CELL_STATE.B && cntA > limit) return false;
-						else if (sourceState !== CELL_STATE.A && cntB > limit) return false;
-						else if (sourceState === CELL_STATE.A && cntU + cntA < limit) return false;
-						else if (sourceState === CELL_STATE.B && cntU + cntB < limit) return false;
-						break; }
+					const cntA = counts[CELL_STATE.A],
+						cntB = counts[CELL_STATE.B],
+						cntU = counts[CELL_STATE.UNSET];
 
-					default: throw new Error("Invalid constraint during whole validation.");
-				}
-					
+					if (sourceState === CELL_STATE.A && cntU + cntA < limit) return false;
+					else if (sourceState === CELL_STATE.B && cntU + cntB < limit) return false;
+					break; }
 
-				this.grid.setState(idx, CELL_STATE.UNSET);
+				default: throw new Error("Invalid constraint during whole validation.");
 			}
 		}
 
 		return true;
 	}
 
-	private _pushToMapArr(key: number, cons: LocalConstraint)
+	private _pushToMapArr(key: number, cons: Constraint)
 	{
 		let list = this.localConstraints.get(key);
 		if (!list)
@@ -813,7 +732,7 @@ function updateGridDisplay(
 
 function main()
 {
-	const presetIdx = 1;
+	const presetIdx = 2;
 	const presets: [string, [number, number][]][] = [
 		[`	_bbb__
 			_bab_b
@@ -846,14 +765,17 @@ function main()
 	]
 
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new GridData(6);
+	const gridData = new GridData(4);
 
-	gridData.parseStringStates(presets[presetIdx][0]);
-	gridData.setAllLimits(presets[presetIdx][1]);
-	gridData.setAllLimits(gridData.countNeighbors());
+	gridData.parseStringStates("_ba_________b__a");
+	gridData.setAllLimits([[0,1], [1,2], [2,2], [4,2], [8,2]]);
+	// gridData.parseStringStates(presets[presetIdx][0]);
+	// gridData.setAllLimits(presets[presetIdx][1]);
+	// gridData.setAllLimits(gridData.countNeighbors());
 
 	const solver = new Solver();
 	solver.useGrid(gridData);
+	// solver.stopAfterFirstSolution = false;
 
 	const stepBtn = document.querySelector("#step") as HTMLButtonElement;
 	const solveBtn = document.querySelector("#solve") as HTMLButtonElement;
@@ -878,7 +800,6 @@ function main()
 		if(keepSolving && !solver.isComplete) {
 			solver.step();
 			updateGridDisplay(gridEl, gridData);
-
 		}
 	})
 
