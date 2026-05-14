@@ -4,7 +4,6 @@ interface LimitNode
 {
 	limit: number,
 	counting: number[];
-	countedBy: number[];
 }
 type LimitEntry = [number, number[]];
 
@@ -81,61 +80,57 @@ class GridData
 		const usedIdx = new Set<number>();
 		for (const [idx, limit] of limitList)
 		{
-			if (idx < 0) throw new Error(`Limit index #${idx} is negative.`);
-			if (idx >= this.cellCnt) throw new Error(`Limit index #${idx} exceeds ${this.cellCnt - 1}.`);
-			if (usedIdx.has(idx)) throw new Error(`Limit at index #${idx} is set more than once.`);
-			if (limit > 8) throw new Error(`Limit at index #${idx} exceeds 8.`);
-			if (limit < 0) throw new Error(`Limit at index #${idx} is negative.`);
-
-			const x = idx % this.size;
-			const y = Math.floor(idx / this.size);
-			const atLeft = x === 0;
-			const atRight = x === this.size - 1;
-			const atTop = y === 0;
-			const atBottom = y === this.size - 1;
-			if ((atLeft || atRight) && (atTop || atBottom) && limit > 3)
-			{
-				throw new Error(`Corner limit at index #${idx} exceeds 3.`);
-			}
-			if ((atLeft || atRight || atTop || atBottom) && limit > 5)
-			{
-				throw new Error(`Edge limit at index #${idx} exceeds 5.`);
-			}
-
-			const counting: number[] = [];
-			if (!atLeft) counting.push(idx - 1);
-			if (!atRight) counting.push(idx + 1);
-			if (!atTop) counting.push(idx - this.size);
-			if (!atBottom) counting.push(idx + this.size);
-			if (!(atLeft || atTop)) counting.push(idx - this.size - 1);
-			if (!(atRight || atTop)) counting.push(idx - this.size + 1);
-			if (!(atLeft || atBottom)) counting.push(idx + this.size - 1);
-			if (!(atRight || atBottom)) counting.push(idx + this.size + 1);
-
-			usedIdx.add(idx);
-
-			if (this.limitMap[idx]) {
-				this.limitMap[idx].counting = counting;
-				this.limitMap[idx].limit = limit;
-			}
-			else this.limitMap[idx] = {
-				limit,
-				counting,
-				countedBy: [],
-			}
-
-			for (const i of counting)
-			{
-				if (this.limitMap[i]) this.limitMap[i].countedBy.push(idx);
-				else this.limitMap[i] = {
-					limit: -1,
-					counting: [],
-					countedBy: [idx],
-				}
-			}
-
-			this.limits.push(idx);
+			this.setLimit(idx, limit, usedIdx);
 		}
+	}
+
+	public setLimit(idx: number, limit: number, usedIdx?: Set<number>): void {
+		if (idx < 0) throw new Error(`Limit index #${idx} is negative.`);
+		if (idx >= this.cellCnt) throw new Error(`Limit index #${idx} exceeds ${this.cellCnt - 1}.`);
+		if (usedIdx?.has(idx)) throw new Error(`Limit at index #${idx} is set more than once.`);
+		if (limit > 8) throw new Error(`Limit at index #${idx} exceeds 8.`);
+		if (limit < 0) throw new Error(`Limit at index #${idx} is negative.`);
+
+		const x = idx % this.size;
+		const y = Math.floor(idx / this.size);
+		const atLeft = x === 0;
+		const atRight = x === this.size - 1;
+		const atTop = y === 0;
+		const atBottom = y === this.size - 1;
+		if ((atLeft || atRight) && (atTop || atBottom) && limit > 3)
+		{
+			throw new Error(`Corner limit at index #${idx} exceeds 3.`);
+		}
+		if ((atLeft || atRight || atTop || atBottom) && limit > 5)
+		{
+			throw new Error(`Edge limit at index #${idx} exceeds 5.`);
+		}
+
+		const counting: number[] = [];
+		if (!atLeft) counting.push(idx - 1);
+		if (!atRight) counting.push(idx + 1);
+		if (!atTop) counting.push(idx - this.size);
+		if (!atBottom) counting.push(idx + this.size);
+		if (!(atLeft || atTop)) counting.push(idx - this.size - 1);
+		if (!(atRight || atTop)) counting.push(idx - this.size + 1);
+		if (!(atLeft || atBottom)) counting.push(idx + this.size - 1);
+		if (!(atRight || atBottom)) counting.push(idx + this.size + 1);
+
+		usedIdx?.add(idx);
+
+		this.limitMap[idx] = {
+			limit,
+			counting,
+		}
+
+		this.limits.push(idx);
+	}
+
+	public removeLimit(idx: number): void {
+		if(!this.limitMap[idx]) return;
+
+		this.limitMap[idx].counting.length = 0;
+		this.limitMap[idx].limit = -1;
 	}
 
 	public countNeighbors(): [number, number][] {
@@ -774,6 +769,50 @@ function main()
 
 	const stepBtn = document.querySelector("#step") as HTMLButtonElement;
 	const solveBtn = document.querySelector("#solve") as HTMLButtonElement;
+
+	gridEl.addEventListener("click", (e) => {
+		const sideEl = e.target;
+		if(!(sideEl instanceof HTMLElement)) return;
+		const cellEl = sideEl.parentElement;
+		if(!(cellEl instanceof HTMLElement && cellEl.classList.contains("cell"))) return;
+
+		const index = +cellEl.id.split("-")[1];
+		const isAlreadySet = gridData.getState(index) !== CELL_STATE.UNSET;
+		if(isAlreadySet) gridData.setState(index, CELL_STATE.UNSET);
+		else {
+			const side = sideEl.hasAttribute("data-state-a") ? CELL_STATE.A : CELL_STATE.B;
+			gridData.setState(index, side);
+		}
+
+		updateGridDisplay(gridEl, gridData);
+	})
+	
+	gridEl.addEventListener("contextmenu", (e) => {
+		const sideEl = e.target;
+		if(!(sideEl instanceof HTMLElement)) return;
+		const cellEl = sideEl.parentElement;
+		if(!(cellEl instanceof HTMLElement && cellEl.classList.contains("cell"))) return;
+
+		e.preventDefault();
+		
+		const index = +cellEl.id.split("-")[1];
+		let input = prompt("Enter the limit count for this cell.");
+		if(!input || input === null || Number.isNaN(+input)) {
+			gridData.removeLimit(index);
+			updateGridDisplay(gridEl, gridData);
+		}
+		else {
+			const limit = +input;
+			
+			try {
+				gridData.setLimit(index, limit);
+				updateGridDisplay(gridEl, gridData);
+			}
+			catch {
+				alert("Invalid limit was inputted. Try a smaller or bigger number.");
+			}
+		}
+	})
 
 	let keepSolving = false;
 	stepBtn.addEventListener("click", () =>
