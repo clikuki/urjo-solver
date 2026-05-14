@@ -79,6 +79,10 @@ button {
 	background-color: transparent;
 }
 
+.presets--preset[data-action="REPLACE"] {
+	font-weight: bold;
+}
+
 .presets--preset button:hover {
 	background-color: #555;
 }

@@ -42,6 +42,35 @@ class GridData
 			);
 	}
 
+	public static fromString(preset: string): GridData {
+		const [size, cells, limits] = this._parsePresetString(preset);
+		const gridData = new this(size);
+		
+		if(cells) gridData.parseStringStates(cells);
+		if(limits) gridData.setAllLimits(limits);
+
+		return gridData;
+	}
+
+	private static _parsePresetString(preset: string): [number, string?, [number, number][]?] {
+		const [sizeStr, cells, limStr] = preset.split("/");
+
+		const size = +sizeStr;
+		if(!sizeStr || isNaN(size)) throw new SyntaxError("Preset must contain a size.");
+
+		const limits: [number, number][] = [];
+		if(limStr) {
+			const parts = limStr.split(",").map(e => e.split(":")) as [string, string][];
+			for(const [a, b] of parts) {
+				const c = +a, d = +b;
+				if(!a || !b || isNaN(c) || isNaN(d)) throw new SyntaxError("Preset limit syntax is invalid.");
+				limits.push([c,d]);
+			}
+		}
+
+		return [size, cells, limits.length ? limits : undefined]
+	}
+
 	public getState(idx: number): CELL_STATE
 	{
 		return this.data[idx];
@@ -200,10 +229,12 @@ class GridData
 
 	public toString(): string
 	{
-		let str = "";
+		let str = `${this.size}/`;
+
+		// cell states
 		for (let idx = 0; idx < this.cellCnt; idx++)
 		{
-			if (idx && idx % this.size === 0) str += "\n";
+			// if (idx && idx % this.size === 0) str += "\n";
 			const state = this.getState(idx);
 			switch (state)
 			{
@@ -218,24 +249,17 @@ class GridData
 					break;
 			}
 		}
+
+		// cell limits
+		const limStrings: string[] = [];
+		for(const idx of this.limits) {
+			limStrings.push(`${idx}:${this.getLimitCount(idx)}`);
+		}
+		str += "/" + limStrings.join(",");
+
 		return str;
 	}
 }
-
-/**
- * NEW PLAN
- * 1. Propagate constraints
- * 2. Locate cells with smallest domains
- * 3. If smallest domain == 0, backtrack to previous state save
- * 4. If smallest domain == 1,
- * 	-		set those cells to those domains
- * 5. Otherwise,
- * 	-		add state save
- * 	-		pick cell to collapse
- * 	-		if all cells already tried, backtrack to previous state save
- * 6. Propagate neighbors
- * 7. Return to step 2
- */
 
 interface CollapsePoint {
 	lowest: number[];
@@ -297,8 +321,6 @@ class Solver
 				this._updateDomain(idx);
 			}
 		}
-
-		// console.log(Object.fromEntries(this.allConstraints.entries()));
 	}
 
 	public step(): void
@@ -670,6 +692,62 @@ class Solver
 	}
 }
 
+function localStorageAvailable() {
+  let storage;
+  try {
+    storage = window.localStorage;
+    const x = "__storage_test__";
+    storage.setItem(x, x);
+    storage.removeItem(x);
+    return true;
+  } catch (e) {
+    return (
+      e instanceof DOMException &&
+      e.name === "QuotaExceededError" &&
+      // acknowledge QuotaExceededError only if there's something already stored
+      storage &&
+      storage.length !== 0
+    );
+  }
+}
+
+const presets = (() => {
+	let presetMap: Map<string, string>;
+	const key = "presets";
+	const storageIsAvailable = localStorageAvailable();
+
+	if(storageIsAvailable) {
+		const initPresets = localStorage.getItem(key) ?? "[]";
+		console.log("LOADED PRESETS FROM STORAGE:", initPresets);
+		presetMap = new Map(JSON.parse(initPresets) as [string, string][]);
+	}
+	else presetMap = new Map();
+
+	return {
+		get(id: string): string | undefined {
+			return presetMap.get(id);
+		},
+		
+		set(preset: string, id = Date.now().toString()): string {
+			presetMap.set(id, preset);
+			return id;
+		},
+		
+		getAll(): MapIterator<[string, string]> {
+			return presetMap.entries();
+		},
+
+		delete(id: string): void {
+			presetMap.delete(id);
+		},
+		
+		save(): void {
+			if(!storageIsAvailable) return;
+			localStorage.setItem(key, JSON.stringify(Array.from(presetMap.entries())));
+		},
+	}
+})();
+
 const cellTemplate = document.querySelector(".cell-template") as HTMLTemplateElement;
 function createCellFragment(id: number): DocumentFragment
 {
@@ -680,6 +758,22 @@ function createCellFragment(id: number): DocumentFragment
 	cell.id = `cell-${id}`;
 
 	return cellFrag;
+}
+
+const presetTemplate = document.querySelector(".preset-template") as HTMLTemplateElement;
+function createPresetFragment(id: string): DocumentFragment
+{
+	const presetFrag = document.importNode(presetTemplate.content, true);
+
+	const preset = presetFrag.querySelector(".presets--preset");
+	const err = new Error("Preset template does not match expected structure");
+	if (!preset) throw err;
+	const useBtn = preset.querySelector("[data-action=USE]");
+	if (!useBtn) throw err;
+
+	preset.id = useBtn.textContent = id; 
+
+	return presetFrag;
 }
 
 function updateGridDisplay(
@@ -725,51 +819,75 @@ function updateGridDisplay(
 	}
 }
 
+function addPreset(presetStr: string, presetsListEl: HTMLElement) {
+	let msg = "Provide a unique name for the preset.";
+	while(true) {
+		const id = prompt(msg);
+
+		if(id === null) return;
+		if(!id) {
+			msg = "Name cannot be empty, try again."
+			continue;
+		}
+		if(presets.get(id)) {
+			msg = "Name already exists, try again."
+			continue;
+		}
+
+		presets.set(presetStr, id);
+		presets.save();
+		presetsListEl.appendChild(createPresetFragment(id));
+		break;
+	}
+}
+
+function loadPresets(presetsListEl: HTMLElement) {
+	for(const [id] of presets.getAll()) {
+		presetsListEl.appendChild(createPresetFragment(id));
+	}
+}
+
+function replacePreset(gridData: GridData, presetEl: HTMLElement): void {
+	const newPreset = gridData.toString();
+	presets.set(newPreset, presetEl.id);
+	presets.save();
+}
+
+function deletePreset(presetEl: HTMLElement, presetsListEl: HTMLElement): void {
+	presets.delete(presetEl.id);
+	presets.save();
+
+	presetEl.remove();
+	if(presetsListEl.childElementCount) return;
+	presetsListEl.replaceChildren();
+}
+
 function main()
 {
-	// const presetIdx = 2;
-	// const presets: [string, [number, number][]][] = [
-	// 	[`	_bbb__
-	// 		_bab_b
-	// 		_bbb__
-	// 		______
-	// 		______
-	// 		______`,
-	// 		[],
-	// 	],
-	// 	[`	aaabbb
-	// 		abaabb
-	// 		bbaaab
-	// 		abbbaa
-	// 		babbaa
-	// 		bababa`,
-	// 		[],
-	// 	],
-	// 	[`	_____a
-	// 		______
-	// 		______
-	// 		______
-	// 		_b____
-	// 		______`,
-	// 		[
-	// 			[3, 4],
-	// 			[25, 1],
-	// 			[35, 3],
-	// 		],
-	// 	],
-	// ]
-	// gridData.parseStringStates("_ba_________b__a");
-	// gridData.setAllLimits([[0,1], [1,2], [2,2], [4,2], [8,2]]);
+	let gridData = new GridData(4);
+	let solver = new Solver();
 
-	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new GridData(6);
+	const defaultPresetFrag = "/________________/";
+	let keepSolving = false;
+	let presetStr = "4" + defaultPresetFrag;
 
-	const solver = new Solver();
 	solver.useGrid(gridData);
-
+	
+	const gridEl = document.body.querySelector(".grid") as HTMLElement;
 	const stepBtn = document.querySelector("#step") as HTMLButtonElement;
 	const solveBtn = document.querySelector("#solve") as HTMLButtonElement;
+	const resetBtn = document.querySelector("#reset") as HTMLButtonElement;
+	const clearBtn = document.querySelector("#clear") as HTMLButtonElement;
+	const addPresetBtn = document.querySelector("#add-as-preset") as HTMLButtonElement;
+	const importStringBtn = document.querySelector("#import-string") as HTMLButtonElement;
+	const presetsListEl = document.querySelector(".presets--list") as HTMLUListElement;
 
+	function reset() {
+		gridData = GridData.fromString(presetStr);
+		solver.useGrid(gridData);
+		updateGridDisplay(gridEl, gridData);
+	}
+	
 	gridEl.addEventListener("click", (e) => {
 		const sideEl = e.target;
 		if(!(sideEl instanceof HTMLElement)) return;
@@ -796,25 +914,31 @@ function main()
 		e.preventDefault();
 		
 		const index = +cellEl.id.split("-")[1];
-		let input = prompt("Enter the limit count for this cell.");
-		if(!input || input === null || Number.isNaN(+input)) {
-			gridData.removeLimit(index);
-			updateGridDisplay(gridEl, gridData);
-		}
-		else {
+
+		let msg = "Enter the limit count for this cell.";
+		while(true) {
+			let input = prompt(msg);
+
+			if(!input || input === null || Number.isNaN(+input)) {
+				gridData.removeLimit(index);
+				updateGridDisplay(gridEl, gridData);
+				return;
+			}
+
+			
 			const limit = +input;
 			
 			try {
 				gridData.setLimit(index, limit);
 				updateGridDisplay(gridEl, gridData);
+				return;
 			}
 			catch {
-				alert("Invalid limit was inputted. Try a smaller or bigger number.");
+				msg = "Invalid limit for that cell was inputted. Try a smaller or bigger number.";
 			}
 		}
 	})
 
-	let keepSolving = false;
 	stepBtn.addEventListener("click", () =>
 	{
 		if(keepSolving) keepSolving = false;
@@ -828,6 +952,57 @@ function main()
 		keepSolving = !keepSolving;
 	})
 
+	resetBtn.addEventListener("click", reset);
+
+	clearBtn.addEventListener("click", () => {
+		const tmp = presetStr;
+		presetStr = `${gridData.size}${defaultPresetFrag}`;
+		reset();
+		presetStr = tmp;
+	})
+
+	addPresetBtn.addEventListener("click", () => {
+		addPreset(gridData.toString(), presetsListEl);
+	})
+
+	importStringBtn.addEventListener("click", () => {
+		let msg = "Enter preset string.";
+		while(true) {
+			let input = prompt(msg);
+
+			if(input) {
+				addPreset(input, presetsListEl);
+				return;
+			} 
+
+			msg = "Invalid preset string. Try again.";
+		}
+	})
+
+	presetsListEl.addEventListener("click", (e) => {
+		const btnEl = e.target;
+		if(!(btnEl instanceof HTMLElement)) return;
+		const presetEl = btnEl.parentElement;
+		if(!(presetEl instanceof HTMLElement && presetEl.classList.contains("presets--preset"))) return;
+
+		const action = btnEl.getAttribute("data-action") as "USE" | "REPLACE" | "DELETE";
+		
+		switch(action) {
+			case "USE":
+				presetStr = presets.get(presetEl.id)!;
+				reset();
+				break;
+
+			case "REPLACE":
+				replacePreset(gridData, presetEl);
+				break;
+
+			case "DELETE":
+				deletePreset(presetEl, presetsListEl);
+				break;
+		}
+	})
+
 	requestAnimationFrame(function loop() {
 		requestAnimationFrame(loop);
 
@@ -837,6 +1012,7 @@ function main()
 		}
 	})
 
+	loadPresets(presetsListEl);
 	updateGridDisplay(gridEl, gridData);
 }
 
