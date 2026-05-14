@@ -304,6 +304,8 @@ class Solver
 		this.grid = grid;
 		this.collapseStack.length = 0;
 		this.domains.length = 0;
+		this.isComplete = false;
+		this.solutions.length = 0;
 		this._createConstraints();
 
 		const emptyIndices: number[] = [];
@@ -847,8 +849,8 @@ function loadPresets(presetsListEl: HTMLElement) {
 	}
 }
 
-function replacePreset(gridData: GridData, presetEl: HTMLElement): void {
-	const newPreset = gridData.toString();
+function replacePreset(preset: string, presetEl: HTMLElement): void {
+	const newPreset = preset;
 	presets.set(newPreset, presetEl.id);
 	presets.save();
 }
@@ -869,6 +871,7 @@ function main()
 
 	const defaultPresetFrag = "/________________/";
 	let keepSolving = false;
+	let refreshSolver = false;
 	let presetStr = "4" + defaultPresetFrag;
 
 	solver.useGrid(gridData);
@@ -879,17 +882,21 @@ function main()
 	const solveBtn = document.querySelector("#solve") as HTMLButtonElement;
 	const resetBtn = document.querySelector("#reset") as HTMLButtonElement;
 	const clearBtn = document.querySelector("#clear") as HTMLButtonElement;
+	const stateDisplayEl = document.querySelector(".state-display") as HTMLElement;
 	const addPresetBtn = document.querySelector("#add-as-preset") as HTMLButtonElement;
 	const importStringBtn = document.querySelector("#import-string") as HTMLButtonElement;
 	const presetsListEl = document.querySelector(".presets--list") as HTMLUListElement;
 
 	function reset() {
+		keepSolving = refreshSolver = false;
 		gridData = GridData.fromString(presetStr);
 		solver.useGrid(gridData);
 		updateGridDisplay(gridEl, gridData);
 	}
 	
 	gridEl.addEventListener("click", (e) => {
+		if(keepSolving) return;
+
 		const sideEl = e.target;
 		if(!(sideEl instanceof HTMLElement)) return;
 		const cellEl = sideEl.parentElement;
@@ -904,9 +911,12 @@ function main()
 		}
 
 		updateGridDisplay(gridEl, gridData);
+		refreshSolver = true;
 	})
 	
 	gridEl.addEventListener("contextmenu", (e) => {
+		if(keepSolving) return;
+
 		const sideEl = e.target;
 		if(!(sideEl instanceof HTMLElement)) return;
 		const cellEl = sideEl.parentElement;
@@ -932,6 +942,7 @@ function main()
 			try {
 				gridData.setLimit(index, limit);
 				updateGridDisplay(gridEl, gridData);
+				refreshSolver = true;
 				return;
 			}
 			catch {
@@ -948,6 +959,11 @@ function main()
 
 	stepBtn.addEventListener("click", () =>
 	{
+		if(refreshSolver) {
+			presetStr = gridData.toString();
+			solver.useGrid(gridData);
+		}
+
 		if(keepSolving) keepSolving = false;
 		else if(!solver.isComplete) {
 			solver.step();
@@ -957,6 +973,11 @@ function main()
 
 	solveBtn.addEventListener("click", () => {
 		keepSolving = !keepSolving;
+
+		if(keepSolving && refreshSolver) {
+			presetStr = gridData.toString();
+			solver.useGrid(gridData);
+		}
 	})
 
 	resetBtn.addEventListener("click", reset);
@@ -977,6 +998,7 @@ function main()
 		while(true) {
 			let input = prompt(msg);
 
+			if(input === null) return;
 			if(input) {
 				addPreset(input, presetsListEl);
 				return;
@@ -1002,7 +1024,7 @@ function main()
 				break;
 
 			case "REPLACE":
-				replacePreset(gridData, presetEl);
+				replacePreset(gridData.toString(), presetEl);
 				break;
 
 			case "DELETE":
@@ -1017,6 +1039,14 @@ function main()
 		if(keepSolving && !solver.isComplete) {
 			solver.step();
 			updateGridDisplay(gridEl, gridData);
+		}
+		else keepSolving = false;
+
+		if(solver.isComplete) {
+			stateDisplayEl.setAttribute("data-state", "COMPLETE");
+		}
+		else {
+			stateDisplayEl.setAttribute("data-state", "IN-PROGRESS");
 		}
 	})
 
