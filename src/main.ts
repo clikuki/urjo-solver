@@ -874,6 +874,7 @@ function main()
 	solver.useGrid(gridData);
 	
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
+	const sizeSel = document.querySelector("#size") as HTMLSelectElement;
 	const stepBtn = document.querySelector("#step") as HTMLButtonElement;
 	const solveBtn = document.querySelector("#solve") as HTMLButtonElement;
 	const resetBtn = document.querySelector("#reset") as HTMLButtonElement;
@@ -939,6 +940,12 @@ function main()
 		}
 	})
 
+	sizeSel.addEventListener("change", () => {
+		const size = +sizeSel.value;
+		presetStr = `${size}${defaultPresetFrag}`;
+		reset();
+	})
+
 	stepBtn.addEventListener("click", () =>
 	{
 		if(keepSolving) keepSolving = false;
@@ -991,6 +998,7 @@ function main()
 			case "USE":
 				presetStr = presets.get(presetEl.id)!;
 				reset();
+				sizeSel.value = gridData.size.toString();
 				break;
 
 			case "REPLACE":
