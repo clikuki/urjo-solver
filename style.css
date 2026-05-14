@@ -11,12 +11,16 @@
 }
 
 body {
+	display: grid;
+	grid-template-columns: 22rem 1fr;
+	gap: 1rem;
 	margin: 0;
+	font-family: monospace;
+	background-color: var(--color-bg);
 }
 
 main {
 	height: 100vh;
-	background-color: var(--color-bg);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -24,19 +28,90 @@ main {
 }
 
 button {
+	font-family: monospace;
+	font-size: inherit;
+	color: white;
+}
+
+.presets {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	padding: 1rem;
+	padding-top: 2rem;
+}
+
+.presets > button {
+	width: 100%;
+	padding: .3rem 1rem;
+	border: 1px solid white;
+	border-radius: 5px;
+	color: white;
+	background-color: transparent;
+	font-size: 1.2rem;
+}
+
+.presets--list {
+	display: flex;
+	flex-direction: column;
+	gap: .5rem;
+	font-size: 1.1rem;
+	margin: 0;
+	padding: 0;
+	overflow: scroll;
+}
+
+.presets--list:empty::before {
+	content: "No presets available";
+	color: white;
+	text-align: center;
+}
+
+.presets--preset {
+	display: grid;
+	grid-template-columns: 1fr min-content min-content;
+	gap: .3rem;
+	border-bottom: 1px solid white;
+}
+
+.presets--preset button {
+	border: none;
+	background-color: transparent;
+}
+
+.presets--preset button:hover {
+	background-color: #555;
+}
+
+.controls {
+	display: flex;
+	gap: 1rem;
+	padding-bottom: 1rem;
+}
+
+.controls--item {
 	width: min-content;
 	padding: .3rem 1rem;
 	border: 1px solid white;
 	border-radius: 5px;
 	color: white;
 	background-color: transparent;
-	font-family: monospace;
 	font-size: 2rem;
 }
 
-.controls {
-	display: flex;
-	gap: 1rem;
+.state-display {
+	height: 100%;
+	aspect-ratio: 1;
+	border: 1px solid white;
+	border-radius: 5px;
+}
+
+.state-display[data-state="IN-PROGRESS"] {
+	background-color: orange;
+}
+
+.state-display[data-state="COMPLETE"] {
+	background-color: green;
 }
 
 .grid {

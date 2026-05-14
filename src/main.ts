@@ -732,50 +732,45 @@ function updateGridDisplay(
 
 function main()
 {
-	const presetIdx = 2;
-	const presets: [string, [number, number][]][] = [
-		[`	_bbb__
-			_bab_b
-			_bbb__
-			______
-			______
-			______`,
-			[],
-		],
-		[`	aaabbb
-			abaabb
-			bbaaab
-			abbbaa
-			babbaa
-			bababa`,
-			[],
-		],
-		[`	_____a
-			______
-			______
-			______
-			_b____
-			______`,
-			[
-				[3, 4],
-				[25, 1],
-				[35, 3],
-			],
-		],
-	]
+	// const presetIdx = 2;
+	// const presets: [string, [number, number][]][] = [
+	// 	[`	_bbb__
+	// 		_bab_b
+	// 		_bbb__
+	// 		______
+	// 		______
+	// 		______`,
+	// 		[],
+	// 	],
+	// 	[`	aaabbb
+	// 		abaabb
+	// 		bbaaab
+	// 		abbbaa
+	// 		babbaa
+	// 		bababa`,
+	// 		[],
+	// 	],
+	// 	[`	_____a
+	// 		______
+	// 		______
+	// 		______
+	// 		_b____
+	// 		______`,
+	// 		[
+	// 			[3, 4],
+	// 			[25, 1],
+	// 			[35, 3],
+	// 		],
+	// 	],
+	// ]
+	// gridData.parseStringStates("_ba_________b__a");
+	// gridData.setAllLimits([[0,1], [1,2], [2,2], [4,2], [8,2]]);
 
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
-	const gridData = new GridData(4);
-
-	gridData.parseStringStates("_ba_________b__a");
-	gridData.setAllLimits([[0,1], [1,2], [2,2], [4,2], [8,2]]);
-	// gridData.parseStringStates(presets[presetIdx][0]);
-	// gridData.setAllLimits(presets[presetIdx][1]);
-	// gridData.setAllLimits(gridData.countNeighbors());
+	const gridData = new GridData(6);
 
 	const solver = new Solver();
 	solver.useGrid(gridData);
-	// solver.stopAfterFirstSolution = false;
 
 	const stepBtn = document.querySelector("#step") as HTMLButtonElement;
 	const solveBtn = document.querySelector("#solve") as HTMLButtonElement;

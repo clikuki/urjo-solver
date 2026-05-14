@@ -9,11 +9,24 @@
 </head>
 
 <body>
+	<aside class="presets">
+		<button id="add-as-preset">Add grid as preset</button>
+		<button id="import-string">Import string</button>
+		<ul class="presets--list"></ul>
+	</aside>
 	<main>
 		<div class="grid"></div>
 		<div class="controls">
-			<button id="step">STEP</button>
-			<button id="solve">SOLVE</button>
+			<select class="controls--item" id="size" autocomplete="off">
+				<option value="4">4x4</option>
+				<option value="6">6x6</option>
+				<option value="8">8x8</option>
+			</select>
+			<button class="controls--item" id="step">STEP</button>
+			<button class="controls--item" id="solve">SOLVE</button>
+			<button class="controls--item" id="reset">RESET</button>
+			<button class="controls--item" id="clear">CLEAR</button>
+			<div class="state-display" data-state="COMPLETE"></div>
 		</div>
 	</main>
 
@@ -23,6 +36,14 @@
 			<div class="side side-A"></div>
 			<div class="side side-B"></div>
 			<span class="count"></span>
+		</div>
+	</template>
+
+	<template class="preset-template">
+		<div class="presets--preset" id="preset-#">
+			<button class="use"></button>
+			<button class="replace"><b><</b></button>
+			<button class="delete">✖</button>
 		</div>
 	</template>
 
