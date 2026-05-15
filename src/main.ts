@@ -694,26 +694,27 @@ class Solver
 	}
 }
 
-function localStorageAvailable() {
-  let storage;
-  try {
-    storage = window.localStorage;
-    const x = "__storage_test__";
-    storage.setItem(x, x);
-    storage.removeItem(x);
-    return true;
-  } catch (e) {
-    return (
-      e instanceof DOMException &&
-      e.name === "QuotaExceededError" &&
-      // acknowledge QuotaExceededError only if there's something already stored
-      storage &&
-      storage.length !== 0
-    );
-  }
-}
 
 const presets = (() => {
+	function localStorageAvailable() {
+	  let storage;
+	  try {
+		storage = window.localStorage;
+		const x = "__storage_test__";
+		storage.setItem(x, x);
+		storage.removeItem(x);
+		return true;
+	  } catch (e) {
+		return (
+		  e instanceof DOMException &&
+		  e.name === "QuotaExceededError" &&
+		  // acknowledge QuotaExceededError only if there's something already stored
+		  storage &&
+		  storage.length !== 0
+		);
+	  }
+	}
+
 	let presetMap: Map<string, string>;
 	const key = "presets";
 	const storageIsAvailable = localStorageAvailable();
@@ -750,55 +751,64 @@ const presets = (() => {
 	}
 })();
 
-const cellTemplate = document.querySelector(".cell-template") as HTMLTemplateElement;
-function createCellFragment(id: number): DocumentFragment
-{
-	const cellFrag = document.importNode(cellTemplate.content, true);
-	const cell = cellFrag.querySelector(".cell");
-	if (!cell) throw new Error("Cell template does not match expected structure");
+const GetTemplate = (() => {
+	const cellTemplate = document.querySelector(".cell-template") as HTMLTemplateElement;
+	const presetTemplate = document.querySelector(".preset-template") as HTMLTemplateElement;
 
-	cell.id = `cell-${id}`;
+	return {
+		cell(id: number): DocumentFragment
+		{
+			const cellFrag = document.importNode(cellTemplate.content, true);
+			const cell = cellFrag.querySelector(".cell");
+			if (!cell) throw new Error("Cell template does not match expected structure");
 
-	return cellFrag;
-}
+			cell.id = `cell-${id}`;
 
-const presetTemplate = document.querySelector(".preset-template") as HTMLTemplateElement;
-function createPresetFragment(id: string): DocumentFragment
-{
-	const presetFrag = document.importNode(presetTemplate.content, true);
+			return cellFrag;
+		},
 
-	const preset = presetFrag.querySelector(".presets--preset");
-	const err = new Error("Preset template does not match expected structure");
-	if (!preset) throw err;
-	const useBtn = preset.querySelector("[data-action=USE]");
-	if (!useBtn) throw err;
+		preset(id: string): DocumentFragment
+		{
+			const presetFrag = document.importNode(presetTemplate.content, true);
 
-	preset.id = useBtn.textContent = id; 
+			const preset = presetFrag.querySelector(".presets--preset");
+			const err = new Error("Preset template does not match expected structure");
+			if (!preset) throw err;
+			const useBtn = preset.querySelector("[data-action=USE]");
+			if (!useBtn) throw err;
 
-	return presetFrag;
-}
+			preset.id = useBtn.textContent = id; 
+
+			return presetFrag;
+		}
+	}
+})()
 
 function updateGridDisplay(
 	gridEl: HTMLElement,
-	data: GridData,
+	gridData: GridData,
 ): void
 {
-	gridEl.style.setProperty("--size", String(data.size));
+	gridEl.style.setProperty("--size", String(gridData.size));
 
-	if (gridEl.childElementCount > data.cellCnt)
+	const cellCnt = gridData.cellCnt;
+	if (gridEl.childElementCount > cellCnt)
 	{
-		const excessCells = gridEl.querySelectorAll(`:nth-child(n + ${data.cellCnt + 1})`)
-		excessCells.forEach(c => c.remove());
+		const excessCnt = gridEl.childElementCount - cellCnt;
+		for(let i = 0; i < excessCnt; i++) {
+			const cell = gridEl.children[cellCnt]
+			cell.remove();
+		}
 	}
-	else for (let i = gridEl.childElementCount; i < data.cellCnt; i++)
+	else for (let i = gridEl.childElementCount; i < cellCnt; i++)
 	{
-		const cellFrag = createCellFragment(i);
+		const cellFrag = GetTemplate.cell(i);
 		gridEl.appendChild(cellFrag);
 	}
 
-	for (let i = 0; i < data.cellCnt; i++)
+	for (let i = 0; i < cellCnt; i++)
 	{
-		const state = data.getState(i);
+		const state = gridData.getState(i);
 		const cellEl = gridEl.children[i];
 
 		switch (state)
@@ -816,7 +826,7 @@ function updateGridDisplay(
 		}
 
 		const countEl = cellEl.querySelector(".count") as HTMLElement;
-		const limit = data.getLimitCount(i);
+		const limit = gridData.getLimitCount(i);
 		countEl.textContent = limit < 0 ? "" : String(limit);
 	}
 }
@@ -838,15 +848,17 @@ function addPreset(presetStr: string, presetsListEl: HTMLElement) {
 
 		presets.set(presetStr, id);
 		presets.save();
-		presetsListEl.appendChild(createPresetFragment(id));
+		presetsListEl.appendChild(GetTemplate.preset(id));
 		break;
 	}
 }
 
 function loadPresets(presetsListEl: HTMLElement) {
+	const presetFrags: DocumentFragment[] = [];
 	for(const [id] of presets.getAll()) {
-		presetsListEl.appendChild(createPresetFragment(id));
+		presetFrags.push(GetTemplate.preset(id));
 	}
+	presetsListEl.replaceChildren(...presetFrags);
 }
 
 function replacePreset(preset: string, presetEl: HTMLElement): void {
