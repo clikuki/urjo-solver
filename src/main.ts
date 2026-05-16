@@ -1062,6 +1062,7 @@ function main()
 		refreshSolver = true;
 	})
 
+	sizeSel.value = gridData.size.toString();
 	sizeSel.addEventListener("change", () => {
 		const size = +sizeSel.value;
 		presetStr = size.toString();
