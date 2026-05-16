@@ -305,7 +305,9 @@ class GridData
 		// cell limits
 		const limStrings: string[] = [];
 		for(const idx of this._limits) {
-			limStrings.push(`${idx}:${this.getLimitCount(idx)}`);
+			const limCnt = this.getLimitCount(idx);
+			if(limCnt < 0) continue;
+			limStrings.push(`${idx}:${limCnt}`);
 		}
 		str += "/" + limStrings.join(",");
 
@@ -347,11 +349,14 @@ class Solver
 	public stopAfterFirstSolution = true;
 	public solutions: string[] = [];
 
-	private grid: GridData;
 	private collapseStack: CollapsePoint[] = [];
 	private domains: Record<CELL_STATE.A | CELL_STATE.B, boolean>[] = [];
 	private allConstraints: Constraint[] = [];
 	private localConstraints = new Map<number, Constraint[]>();
+
+	constructor(private grid: GridData) {
+		this.useGrid(grid);
+	}
 
 	public useGrid(grid: GridData)
 	{
@@ -783,18 +788,34 @@ const presets = (() => {
 	  }
 	}
 
-	let presetMap: Map<string, string>;
-	const key = "presets";
-	const storageIsAvailable = localStorageAvailable();
+	let presetMap: Map<string, string>,
+		lastUsed = "4";
+
+	const storeKey = "presets",
+		lastUsedKey = "last-used",
+		storageIsAvailable = localStorageAvailable();
 
 	if(storageIsAvailable) {
-		const initPresets = localStorage.getItem(key) ?? "[]";
+		const initPresets = localStorage.getItem(storeKey) ?? "[]";
+		const initUsed = localStorage.getItem(lastUsedKey) ?? "4";
+
 		console.log("LOADED PRESETS FROM STORAGE:", initPresets);
+		console.log("LOADED LAST PRESET FROM STORAGE:", initUsed);
+
 		presetMap = new Map(JSON.parse(initPresets) as [string, string][]);
+		lastUsed = initUsed;
 	}
 	else presetMap = new Map();
 
 	return {
+		getLast(): string {
+			return lastUsed;
+		},
+
+		setCurrent(preset: string): void {
+			lastUsed = preset;
+		},
+
 		get(id: string): string | undefined {
 			return presetMap.get(id);
 		},
@@ -814,7 +835,8 @@ const presets = (() => {
 		
 		save(): void {
 			if(!storageIsAvailable) return;
-			localStorage.setItem(key, JSON.stringify(Array.from(presetMap.entries())));
+			localStorage.setItem(storeKey, JSON.stringify(Array.from(presetMap.entries())));
+			localStorage.setItem(lastUsedKey, lastUsed);
 		},
 	}
 })();
@@ -915,6 +937,7 @@ function addPreset(presetStr: string, presetsListEl: HTMLElement) {
 		}
 
 		presets.set(presetStr, id);
+		presets.setCurrent(presetStr);
 		presets.save();
 		presetsListEl.appendChild(GetTemplate.preset(id));
 		break;
@@ -930,8 +953,8 @@ function loadPresets(presetsListEl: HTMLElement) {
 }
 
 function replacePreset(preset: string, presetEl: HTMLElement): void {
-	const newPreset = preset;
-	presets.set(newPreset, presetEl.id);
+	presets.set(preset, presetEl.id);
+	presets.setCurrent(preset);
 	presets.save();
 }
 
@@ -946,15 +969,12 @@ function deletePreset(presetEl: HTMLElement, presetsListEl: HTMLElement): void {
 
 function main()
 {
-	let gridData = new GridData(4);
-	let solver = new Solver();
+	let keepSolving = false,
+		refreshSolver = false,
+		presetStr = presets.getLast();
 
-	const defaultPresetFrag = "/________________/";
-	let keepSolving = false;
-	let refreshSolver = false;
-	let presetStr = "4" + defaultPresetFrag;
-
-	solver.useGrid(gridData);
+	let gridData = GridData.fromString(presetStr),
+		solver = new Solver(gridData);
 	
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
 	const sizeSel = document.querySelector("#size") as HTMLSelectElement;
@@ -969,9 +989,14 @@ function main()
 
 	function reset() {
 		keepSolving = refreshSolver = false;
+
 		gridData = GridData.fromString(presetStr);
 		solver.useGrid(gridData);
+
 		updateGridDisplay(gridEl, gridData);
+
+		presets.setCurrent(presetStr);
+		presets.save();
 	}
 	
 	gridEl.addEventListener("click", (e) => {
@@ -991,6 +1016,9 @@ function main()
 		}
 
 		updateGridDisplay(gridEl, gridData);
+
+		presets.setCurrent(gridData.toString());
+		presets.save();
 		refreshSolver = true;
 	})
 	
@@ -1012,8 +1040,7 @@ function main()
 
 			if(!input || input === null || Number.isNaN(+input)) {
 				gridData.removeLimit(index);
-				updateGridDisplay(gridEl, gridData);
-				return;
+				break;
 			}
 
 			
@@ -1021,19 +1048,23 @@ function main()
 			
 			try {
 				gridData.setLimit(index, limit);
-				updateGridDisplay(gridEl, gridData);
-				refreshSolver = true;
-				return;
+				break;
 			}
 			catch {
 				msg = "Invalid limit for that cell was inputted. Try a smaller or bigger number.";
 			}
 		}
+		
+		updateGridDisplay(gridEl, gridData);
+
+		presets.setCurrent(gridData.toString());
+		presets.save();
+		refreshSolver = true;
 	})
 
 	sizeSel.addEventListener("change", () => {
 		const size = +sizeSel.value;
-		presetStr = `${size}${defaultPresetFrag}`;
+		presetStr = size.toString();
 		reset();
 	})
 
@@ -1064,7 +1095,7 @@ function main()
 
 	clearBtn.addEventListener("click", () => {
 		const tmp = presetStr;
-		presetStr = `${gridData.size}${defaultPresetFrag}`;
+		presetStr = gridData.size.toString();
 		reset();
 		presetStr = tmp;
 	})
