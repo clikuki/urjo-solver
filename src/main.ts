@@ -9,37 +9,55 @@ type LimitEntry = [number, number[]];
 
 class GridData
 {
-	private data: CELL_STATE[];
+	private _data: CELL_STATE[];
+	
+	// Columns first, then rows.
 	private _lines: number[][];
-	private filledCount = 0;
-	private limits: number[] = [];
-	private limitMap: LimitNode[] = [];
+	// Also column-row, but line is represented by masks of each state
+	private _lineBits: Uint8Array;
+	// Also column-row, but stores tuples of states
+	private _lineCounts: [number, number, number][];
 
-	public get lines(): readonly CELL_STATE[][]
+	private _limits: number[] = [];
+	private _limitMap: LimitNode[] = [];
+
+	public getLineIndicesAt(i: number, isRow: boolean): readonly number[]
 	{
-		return this._lines;
+		if(isRow) i += this.size;
+		return this._lines[i];
 	}
-
-	public get isFilled(): boolean
+	
+	public getLineMasksAt(i: number, isRow: boolean): readonly [number, number]
 	{
-		return this.filledCount === this.cellCnt;
+		i = i * 2
+		if(isRow) i += this.size + this.size;
+		return [this._lineBits[i], this._lineBits[i + 1]]
 	}
-
+	
+	public getLineCountsAt(i: number, isRow: boolean): readonly [number, number, number]
+	{
+		if(isRow) i += this.size;
+		return this._lineCounts[i];
+	}
+	
 	public readonly cellCnt: number;
 	constructor(public readonly size: number)
 	{
-		if (size < 4 || size % 2) throw new Error("Grid size must be even");
+		if (size < 4 || size % 2) throw new Error("Grid size must be even and at least 4");
 
 		this.cellCnt = size * size;
-		this.data = Array(this.cellCnt).fill(0).map(_ => CELL_STATE.UNSET);
-		this._lines = Array(this.size) // Indices per line
+		this._data = Array(this.cellCnt).fill(0).map(_ => CELL_STATE.UNSET);
+		this._lines = Array(size) // Indices per line
+			.fill(0)
+			.map((_, y) => Array(size).fill(0).map((_, x) => x + y * size))
+		this._lines = Array(size)
 			.fill(0)
 			.map((_, x) => Array(size).fill(0).map((_, y) => x + y * size))
-			.concat(
-				Array(this.size)
-					.fill(0)
-					.map((_, y) => Array(size).fill(0).map((_, x) => x + y * size))
-			);
+			.concat(this._lines);
+		this._lineBits = new Uint8Array(size * 4);
+		this._lineCounts = Array(size + size)
+			.fill(0)
+			.map(() => [0, 0, size]);
 	}
 
 	public static fromString(preset: string): GridData {
@@ -73,38 +91,72 @@ class GridData
 
 	public getState(idx: number): CELL_STATE
 	{
-		return this.data[idx];
+		return this._data[idx];
 	}
 
-	public setState(idx: number, state: CELL_STATE): void
+	public setState(idx: number, newState: CELL_STATE): void
 	{
-		if (this.data[idx] === state) return;
-		this.data[idx] = state;
+		if (this._data[idx] === newState) return;
+		const oldState = this._data[idx];
+		this._data[idx] = newState;
+ 
+		const x = idx % this.size;
+		const y = Math.floor(idx / this.size);
+		
+		// State counts
+		this._lineCounts[x][oldState]--;
+		this._lineCounts[x][newState]++;
+		this._lineCounts[y + this.size][oldState]--;
+		this._lineCounts[y + this.size][newState]++;
+
+		// Line Masks
+		const listX = x * 2;
+		const listY = y * 2 + this.size + this.size;
+		const colMask = 1 << y;
+		const rowMask = 1 << x;
+
+		if(newState === CELL_STATE.A) {
+			this._lineBits[listX] = this._lineBits[listX] | colMask;
+			this._lineBits[listY] = this._lineBits[listY] | rowMask;
+		}
+		else {
+			this._lineBits[listX] = this._lineBits[listX] & ~colMask;
+			this._lineBits[listY] = this._lineBits[listY] & ~rowMask;
+		}
+		
+		if(newState === CELL_STATE.B) {
+			this._lineBits[listX+1] = this._lineBits[listX+1] | colMask;
+			this._lineBits[listY+1] = this._lineBits[listY+1] | rowMask;
+		}
+		else {
+			this._lineBits[listX+1] = this._lineBits[listX+1] & ~colMask;
+			this._lineBits[listY+1] = this._lineBits[listY+1] & ~rowMask;
+		}
 	}
 
 	public getLimitedCells(): readonly number[]
 	{
-		return this.limits;
+		return this._limits;
 	}
 
 	public getLimitCount(idx: number): number
 	{
-		const node = this.limitMap[idx];
+		const node = this._limitMap[idx];
 		if (!node) return -1;
 		return node.limit;
 	}
 
 	public getLimitNeighbors(idx: number): number[]
 	{
-		const node = this.limitMap[idx];
+		const node = this._limitMap[idx];
 		if (!node) return [];
 		return node.counting;
 	}
 
 	public setAllLimits(limitList: [idx: number, limit: number][]): void
 	{
-		this.limitMap.length = 0;
-		this.limits.length = 0;
+		this._limitMap.length = 0;
+		this._limits.length = 0;
 
 		const usedIdx = new Set<number>();
 		for (const [idx, limit] of limitList)
@@ -147,19 +199,19 @@ class GridData
 
 		usedIdx?.add(idx);
 
-		this.limitMap[idx] = {
+		this._limitMap[idx] = {
 			limit,
 			counting,
 		}
 
-		this.limits.push(idx);
+		this._limits.push(idx);
 	}
 
 	public removeLimit(idx: number): void {
-		if(!this.limitMap[idx]) return;
+		if(!this._limitMap[idx]) return;
 
-		this.limitMap[idx].counting.length = 0;
-		this.limitMap[idx].limit = -1;
+		this._limitMap[idx].counting.length = 0;
+		this._limitMap[idx].limit = -1;
 	}
 
 	public countNeighbors(): [number, number][] {
@@ -252,7 +304,7 @@ class GridData
 
 		// cell limits
 		const limStrings: string[] = [];
-		for(const idx of this.limits) {
+		for(const idx of this._limits) {
 			limStrings.push(`${idx}:${this.getLimitCount(idx)}`);
 		}
 		str += "/" + limStrings.join(",");
@@ -271,13 +323,15 @@ type Constraint = LineConstraint | AdjacencyConstraint | LimitConstraint;
 interface LineConstraint
 {
 	type: "LINE";
-	line: number[];
+	isRow: boolean;
+	lineIdx: number;
 }
 interface AdjacencyConstraint
 {
 	type: "ADJACENT";
-	a: number[];
-	b: number[];
+	isRow: boolean;
+	aIdx: number;
+	bIdx: number;
 }
 interface LimitConstraint
 {
@@ -408,14 +462,16 @@ class Solver
 		this.allConstraints.length = 0;
 		this.localConstraints.clear();
 
-		const lines = this.grid.lines, size = this.grid.size;
+		const size = this.grid.size;
 		for (let i = 0; i < size; i++) {
 			this.allConstraints.push({
 				type: "LINE",
-				line: lines[i],
+				isRow: false,
+				lineIdx: i,
 			}, {
 				type: "LINE",
-				line: lines[i + size],
+				isRow: true,
+				lineIdx: i,
 			})
 		}
 
@@ -423,12 +479,14 @@ class Solver
 		{
 			this.allConstraints.push({
 				type: "ADJACENT",
-				a: lines[i],
-				b: lines[i - 1],
+				isRow: false,
+				aIdx: i - 1,
+				bIdx: i,
 			}, {
 				type: "ADJACENT",
-				a: lines[i + size],
-				b: lines[i + size - 1],
+				isRow: true,
+				aIdx: i - 1,
+				bIdx: i,
 			});
 		}
 
@@ -449,17 +507,20 @@ class Solver
 		{
 			switch(constraint.type) {
 				case "LINE":
-					for (const idx of constraint.line)
+					const indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+					for (const idx of indices)
 					{
 						this._pushToMapArr(idx, constraint);
 					}
 					break;
 
 				case "ADJACENT":
+					const aIndices = this.grid.getLineIndicesAt(constraint.aIdx, constraint.isRow);
+					const bIndices = this.grid.getLineIndicesAt(constraint.bIdx, constraint.isRow);
 					for (let i = 0; i < size; i++)
 					{
-						this._pushToMapArr(constraint.a[i], constraint);
-						this._pushToMapArr(constraint.b[i], constraint);
+						this._pushToMapArr(aIndices[i], constraint);
+						this._pushToMapArr(bIndices[i], constraint);
 					}
 					break;
 
@@ -511,7 +572,8 @@ class Solver
 		for(const constraint of constraints) {
 			switch(constraint.type) {
 				case "LINE":
-					for(const i of constraint.line) affected[i] = true;
+					const indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+					for(const i of indices) affected[i] = true;
 					break;
 
 				case "ADJACENT":
@@ -535,7 +597,7 @@ class Solver
 		let changed = false;
 		for (const state of [CELL_STATE.A, CELL_STATE.B] as const)
 		{
-			if (!domain[state]) break;
+			if (!domain[state]) continue;
 
 			this.grid.setState(idx, state);
 
@@ -544,8 +606,10 @@ class Solver
 				switch(constraint.type) {
 					case "LINE": {
 						const counts = [0, 0],
-							half = this.grid.size / 2;
-						for(const i of constraint.line) {
+							half = this.grid.size / 2,
+							indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+
+						for(const i of indices) {
 							const cellState = this.grid.getState(i);
 							if(cellState !== CELL_STATE.UNSET && ++counts[cellState] > half) {
 								domain[state] = false;
@@ -555,15 +619,16 @@ class Solver
 						break;}
 
 					case "ADJACENT":{
-						domain[state] = false;
-						for (let i = 0; i < this.grid.size; i++)
-						{
-							const a = this.grid.getState(constraint.a[i])
-							const b = this.grid.getState(constraint.b[i])
-							if (a === b && a !== CELL_STATE.UNSET) continue;
-							domain[state] = true;
-							break;
-						}
+						const half = this.grid.size / 2,
+							aMasks = this.grid.getLineMasksAt(constraint.aIdx, constraint.isRow),
+							bMasks = this.grid.getLineMasksAt(constraint.bIdx, constraint.isRow),
+							counts = this.grid.getLineCountsAt(constraint.bIdx, constraint.isRow);
+
+						if(
+							(counts[0] === half && (aMasks[0] === bMasks[0])) ||
+							(counts[1] === half && (aMasks[1] === bMasks[1]))
+						) domain[state] = false;
+
 						break;}
 
 					case "LIMIT":{
@@ -631,14 +696,14 @@ class Solver
 
 	private _isValid(): boolean
 	{
-		if(this.grid.toString() === "bbab\nbaba\naabb\nbbaa") debugger;
-
 		main: for(const constraint of this.allConstraints) {
 			switch(constraint.type) {
 				case "LINE": {
 					const counts = [0, 0],
-						half = this.grid.size / 2;
-					for(const i of constraint.line) {
+						half = this.grid.size / 2,
+						indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+
+					for(const i of indices) {
 						const cellState = this.grid.getState(i);
 						if(cellState !== CELL_STATE.UNSET && ++counts[cellState] > half) {
 							return false;
@@ -647,14 +712,17 @@ class Solver
 					break; }
 
 				case "ADJACENT": {
-					for (let i = 0; i < this.grid.size; i++)
-					{
-						const a = this.grid.getState(constraint.a[i])
-						const b = this.grid.getState(constraint.b[i])
-						if (a === b && a !== CELL_STATE.UNSET) continue;
-						continue main;
-					}
-					return false; }
+					const half = this.grid.size / 2,
+						aMasks = this.grid.getLineMasksAt(constraint.aIdx, constraint.isRow),
+						bMasks = this.grid.getLineMasksAt(constraint.bIdx, constraint.isRow),
+						counts = this.grid.getLineCountsAt(constraint.bIdx, constraint.isRow);
+
+					if(
+						(counts[0] === half && (aMasks[0] === bMasks[0])) ||
+						(counts[1] === half && (aMasks[1] === bMasks[1]))
+					) return false;
+
+					break; }
 
 				case "LIMIT": {
 					const limit = constraint.count;
@@ -1064,6 +1132,9 @@ function main()
 
 	loadPresets(presetsListEl);
 	updateGridDisplay(gridEl, gridData);
+	
+	// @ts-expect-error
+	window.solver = solver;
 }
 
 main()
