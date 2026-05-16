@@ -158,17 +158,15 @@ class GridData
 		this._limitMap.length = 0;
 		this._limits.length = 0;
 
-		const usedIdx = new Set<number>();
 		for (const [idx, limit] of limitList)
 		{
-			this.setLimit(idx, limit, usedIdx);
+			this.setLimit(idx, limit);
 		}
 	}
 
-	public setLimit(idx: number, limit: number, usedIdx?: Set<number>): void {
+	public setLimit(idx: number, limit: number): void {
 		if (idx < 0) throw new Error(`Limit index #${idx} is negative.`);
 		if (idx >= this.cellCnt) throw new Error(`Limit index #${idx} exceeds ${this.cellCnt - 1}.`);
-		if (usedIdx?.has(idx)) throw new Error(`Limit at index #${idx} is set more than once.`);
 		if (limit > 8) throw new Error(`Limit at index #${idx} exceeds 8.`);
 		if (limit < 0) throw new Error(`Limit at index #${idx} is negative.`);
 
@@ -197,14 +195,12 @@ class GridData
 		if (!(atLeft || atBottom)) counting.push(idx + this.size - 1);
 		if (!(atRight || atBottom)) counting.push(idx + this.size + 1);
 
-		usedIdx?.add(idx);
+		if(!this._limits.includes(idx)) this._limits.push(idx);
 
 		this._limitMap[idx] = {
 			limit,
 			counting,
 		}
-
-		this._limits.push(idx);
 	}
 
 	public removeLimit(idx: number): void {
@@ -621,6 +617,7 @@ class Solver
 								break;
 							}
 						}
+
 						break;}
 
 					case "ADJACENT":{
@@ -647,13 +644,18 @@ class Solver
 							counts[state]++;
 						}
 
-						const cntA = counts[CELL_STATE.A],
-							  cntB = counts[CELL_STATE.B],
-							  cntU = counts[CELL_STATE.UNSET];
-						// if(idx === 4) debugger;
+						if(
+							sourceState === CELL_STATE.UNSET && 
+							counts[CELL_STATE.A] > limit &&
+							counts[CELL_STATE.B] > limit
+							||
+							sourceState !== CELL_STATE.UNSET && (
+								counts[sourceState] > limit ||
+								counts[sourceState] + counts[CELL_STATE.UNSET] < limit)
+						) {
+							domain[state] = false;
+						}
 
-						if (sourceState === CELL_STATE.A && cntU + cntA < limit) domain[state] = false;
-						else if (sourceState === CELL_STATE.B && cntU + cntB < limit) domain[state] = false;
 						break;}
 
 					default: throw new Error("Invalid local constraint during domain collapse.");
@@ -714,6 +716,7 @@ class Solver
 							return false;
 						}
 					}
+					
 					break; }
 
 				case "ADJACENT": {
@@ -740,12 +743,13 @@ class Solver
 						counts[state]++;
 					}
 
-					const cntA = counts[CELL_STATE.A],
-						cntB = counts[CELL_STATE.B],
-						cntU = counts[CELL_STATE.UNSET];
+					if(
+						counts[sourceState] > limit ||
+						counts[sourceState] + counts[CELL_STATE.UNSET] < limit
+					) {
+						return false;
+					}
 
-					if (sourceState === CELL_STATE.A && cntU + cntA < limit) return false;
-					else if (sourceState === CELL_STATE.B && cntU + cntB < limit) return false;
 					break; }
 
 				default: throw new Error("Invalid constraint during whole validation.");
