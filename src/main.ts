@@ -676,7 +676,7 @@ class Solver
 	private _findLeastEntropy(): { entropy: number, indices: number[] }
 	{
 		let lowestEntropy = 3;
-		const lowestCells: number[] = [];
+		const indices: number[] = [];
 		for (let idx = 0; idx < this.grid.cellCnt; idx++)
 		{
 			if(this.grid.getState(idx) !== CELL_STATE.UNSET) continue;
@@ -684,26 +684,24 @@ class Solver
 			const domain = this.domains[idx];
 			const entropy = +domain[0] + +domain[1];
 
+			// If zero, then grid is invalid, discard immediately
+			if(entropy === 0) return { entropy, indices: [] };
+			if(entropy > lowestEntropy) continue;
 			if (entropy < lowestEntropy)
 			{
 				lowestEntropy = entropy;
-				if (entropy === 0) break; // If zero, then state is invalid, discard immediately
-
-				lowestCells.length = 0;
-				lowestCells[0] = idx;
+				indices.length = 0;
 			}
-			else if (entropy === lowestEntropy)
-			{
-				lowestCells.push(idx);
-			}
+			
+			indices.push(idx);
 		}
 
-		return { entropy: lowestEntropy, indices: lowestCells };
+		return { entropy: lowestEntropy, indices };
 	}
 
 	private _isValid(): boolean
 	{
-		main: for(const constraint of this.allConstraints) {
+		for(const constraint of this.allConstraints) {
 			switch(constraint.type) {
 				case "LINE": {
 					const counts = [0, 0],
@@ -744,6 +742,10 @@ class Solver
 					}
 
 					if(
+						sourceState === CELL_STATE.UNSET && 
+						counts[CELL_STATE.A] > limit &&
+						counts[CELL_STATE.B] > limit
+						||
 						counts[sourceState] > limit ||
 						counts[sourceState] + counts[CELL_STATE.UNSET] < limit
 					) {
