@@ -1183,6 +1183,8 @@ function main()
 	
 	// @ts-expect-error
 	window.solver = solver;
+	// @ts-expect-error
+	window.render = () => updateGridDisplay(gridEl, gridData);
 }
 
 main()
