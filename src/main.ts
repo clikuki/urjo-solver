@@ -398,10 +398,11 @@ class Solver
 		else if(entropy === 2)
 		{
 			// Create new collapse point, then try first index
-			const idx = indices.pop()!;
+			const orderedIndices = this._orderIndices(indices);
+			const idx = orderedIndices.pop()!;
 
 			this.collapseStack.push({
-				lowest: indices,
+				lowest: orderedIndices,
 				grid: this.grid.toString(),
 				domain: JSON.stringify(this.domains),
 			});
@@ -455,6 +456,27 @@ class Solver
 	private _getStateToUse(idx: number): CELL_STATE {
 		if(this.domains[idx][CELL_STATE.A]) return CELL_STATE.A;
 		else return CELL_STATE.B;
+	}
+
+	private _orderIndices(indices: number[]): number[] {
+		const sources: number[] = [];
+		const limitedBySet: number[] = [];
+		const limitedByUnset: number[] = [];
+		const nonsources: number[] = [];
+
+		main: for(const idx of indices) {
+			const constraints = this.localConstraints.get(idx)!;
+			for(const constraint of constraints) {
+				if(constraint.type !== "LIMIT") continue;
+				if(constraint.source === idx) sources.push(idx);
+				else if(this.grid.getState(constraint.source) === CELL_STATE.UNSET) limitedByUnset.push(idx);
+				else limitedBySet.push(idx);
+				continue main;
+			}
+			nonsources.push(idx);
+		}
+
+		return nonsources.concat(limitedByUnset, sources, limitedBySet);
 	}
 
 	private _createConstraints(): void
@@ -1038,7 +1060,7 @@ function main()
 				gridData.removeLimit(index);
 				break;
 			}
-			
+
 			const limit = +input;
 			try {
 				gridData.setLimit(index, limit);
