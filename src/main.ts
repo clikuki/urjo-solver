@@ -205,9 +205,8 @@ class GridData
 
 	public removeLimit(idx: number): void {
 		if(!this._limitMap[idx]) return;
-
-		this._limitMap[idx].counting.length = 0;
-		this._limitMap[idx].limit = -1;
+		this._limits = this._limits.filter(l => l !== idx);
+		delete this._limitMap[idx];
 	}
 
 	public countNeighbors(): [number, number][] {
@@ -542,15 +541,6 @@ class Solver
 	private _updateSurroundingDomain(indices: number[]): void {
 		const affected: boolean[] = [];
 		for(const idx of indices) this._setAffected(idx, affected);
-		
-		// if(indices[0] === 33) {
-		// 	const initUpdate = [];
-		// 	for(let i = 0; i < this.grid.cellCnt; i++) {
-		// 		if(!affected[i] || this.grid.getState(i) !== CELL_STATE.UNSET) continue;
-		// 		initUpdate.push(i);
-		// 	}
-		// 	console.log(...initUpdate);
-		// }
 
 		let updated;
 		do {
@@ -1048,10 +1038,8 @@ function main()
 				gridData.removeLimit(index);
 				break;
 			}
-
 			
 			const limit = +input;
-			
 			try {
 				gridData.setLimit(index, limit);
 				break;
