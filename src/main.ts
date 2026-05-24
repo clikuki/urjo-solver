@@ -201,37 +201,25 @@ class GridData
 		node.limit = limit;
 	}
 
-	public countNeighbors(): [number, number][] {
-		const surr: [number, number][] = [];
-		for(let idx = 0; idx < 36; idx++) {
-			const neighbors = [];
-			const x = idx % this.size;
-			const y = Math.floor(idx / this.size);
-			const atLeft = x === 0;
-			const atRight = x === this.size - 1;
-			const atTop = y === 0;
-			const atBottom = y === this.size - 1;
+	public getNeighbors(idx: number): number[] {
+		const neighborIndices = [];
+		const x = idx % this.size;
+		const y = Math.floor(idx / this.size);
+		const atLeft = x === 0;
+		const atRight = x === this.size - 1;
+		const atTop = y === 0;
+		const atBottom = y === this.size - 1;
 
-			if (!atLeft) neighbors.push(idx - 1);
-			if (!atRight) neighbors.push(idx + 1);
-			if (!atTop) neighbors.push(idx - this.size);
-			if (!atBottom) neighbors.push(idx + this.size);
-			if (!(atLeft || atTop)) neighbors.push(idx - this.size - 1);
-			if (!(atRight || atTop)) neighbors.push(idx - this.size + 1);
-			if (!(atLeft || atBottom)) neighbors.push(idx + this.size - 1);
-			if (!(atRight || atBottom)) neighbors.push(idx + this.size + 1);
+		if (!atLeft) neighborIndices.push(idx - 1);
+		if (!atRight) neighborIndices.push(idx + 1);
+		if (!atTop) neighborIndices.push(idx - this.size);
+		if (!atBottom) neighborIndices.push(idx + this.size);
+		if (!(atLeft || atTop)) neighborIndices.push(idx - this.size - 1);
+		if (!(atRight || atTop)) neighborIndices.push(idx - this.size + 1);
+		if (!(atLeft || atBottom)) neighborIndices.push(idx + this.size - 1);
+		if (!(atRight || atBottom)) neighborIndices.push(idx + this.size + 1);
 
-			const counts = [0, 0, 0];
-			for (const neighbor of neighbors)
-			{
-				const state = this.getState(neighbor);
-				counts[state]++;
-			}
-
-			const state = this.getState(idx);
-			surr.push([idx, counts[state]]);
-		}
-		return surr;
+		return neighborIndices;
 	}
 
 	public parseStringStates(
@@ -302,8 +290,10 @@ class GridData
 	}
 }
 
+
+type Move = [number, CELL_STATE.A | CELL_STATE.B];
 interface CollapsePoint {
-	lowest: number[];
+	lowest: Move[];
 	grid: string,
 	domain: string,
 }
@@ -366,7 +356,7 @@ class Solver
 			if (state === CELL_STATE.UNSET)
 			{
 				emptyIndices.push(idx);
-				this._updateDomain(idx);
+				this._updateDomain(idx, false);
 			}
 		}
 	}
@@ -375,23 +365,23 @@ class Solver
 	{
 		if(this.isComplete) return;
 
-		const { entropy, indices } = this._findLeastEntropy();
-		// console.log(entropy, indices);
+		const { entropy, moves } = this._findMoves();
+		// console.log(entropy, moves);
 
 		if (entropy === 1)
 		{
-			for (const idx of indices)
+			for (const [idx, state] of moves)
 			{
-				this.grid.setState(idx, this._getStateToUse(idx));
+				this.grid.setState(idx, state);
 			}
 
-			this._updateSurroundingDomain(indices);
+			this._updateSurroundingDomain(moves.map(([i]) => i));
 		}
 		else if(entropy === 2)
 		{
 			// Create new collapse point, then try first index
-			const orderedIndices = this._orderIndices(indices);
-			const idx = orderedIndices.pop()!;
+			const orderedIndices = this._orderMoves(moves);
+			const [idx, state] = orderedIndices.pop()!;
 
 			this.collapseStack.push({
 				lowest: orderedIndices,
@@ -399,8 +389,9 @@ class Solver
 				domain: JSON.stringify(this.domains),
 			});
 
-			this.grid.setState(idx, this._getStateToUse(idx));
+			this.grid.setState(idx, state);
 			this._updateSurroundingDomain([idx]);
+			
 			// for(let i = 0; i < this.grid.cellCnt; i++){
 			// 	if(this.grid.getState(i) !== CELL_STATE.UNSET) continue;
 			// 	console.log(`${i} : `, this.domains[i]);
@@ -428,11 +419,12 @@ class Solver
 					return;
 				}
 
-				const idx = collapsed.lowest.pop();
-				if(idx !== undefined) {
+				const move = collapsed.lowest.pop();
+				if(move !== undefined) {
+					const [idx, state] = move;
 					this.grid.parseStringStates(collapsed.grid);
 					this.domains = JSON.parse(collapsed.domain);
-					this.grid.setState(idx, this._getStateToUse(idx));
+					this.grid.setState(idx, state);
 					this._updateSurroundingDomain([idx]);
 				}
 				else {
@@ -445,30 +437,55 @@ class Solver
 		// console.log(this.collapseStack.length, this.collapseStack)
 	}
 
-	private _getStateToUse(idx: number): CELL_STATE {
-		if(this.domains[idx][CELL_STATE.A]) return CELL_STATE.A;
-		else return CELL_STATE.B;
-	}
+	// private _getStateToUse(idx: number): CELL_STATE {
+	// 	idx === 2 && console.log(this.domains[idx]);
+	// 	if(this.domains[idx][CELL_STATE.A]) return CELL_STATE.A;
+	// 	else return CELL_STATE.B;
+	// }
 
-	private _orderIndices(indices: number[]): number[] {
-		const sources: number[] = [];
-		const limitedBySet: number[] = [];
-		const limitedByUnset: number[] = [];
-		const nonsources: number[] = [];
+	private _orderMoves(moves: Move[]): Move[] {
+		return moves.reverse();
 
-		main: for(const idx of indices) {
-			const constraints = this.localConstraints.get(idx)!;
-			for(const constraint of constraints) {
-				if(constraint.type !== "LIMIT") continue;
-				if(constraint.source === idx) sources.push(idx);
-				else if(this.grid.getState(constraint.source) === CELL_STATE.UNSET) limitedByUnset.push(idx);
-				else limitedBySet.push(idx);
-				continue main;
-			}
-			nonsources.push(idx);
-		}
+		// const indexMoveMap = moves.reduce((m, mv) => {
+		// 	const idx = mv[0];
+		// 	if(m.has(idx)) m.get(idx)!.push(mv);
+		// 	else m.set(idx, [mv]);
+		// 	return m;
+		// }, new Map<number, Move[]>());
+		// const neighborhoodLimitCounts: number[] = [];
+		// const limited = this.grid.getLimitedCells();
+		// for(const [idx] of indexMoveMap) {
+		// 	let limCnt = this.localConstraints.get(idx)!.length;
 
-		return nonsources.concat(limitedByUnset, sources, limitedBySet);
+		// 	for(const neigborIdx of this.grid.getNeighbors(idx)) {
+		// 		if(limited.includes(neigborIdx)) limCnt++;
+		// 	}
+
+		// 	neighborhoodLimitCounts[idx] = limCnt;
+		// }
+
+		// const sources: number[] = [];
+		// const limitedBySet: number[] = [];
+		// const limitedByUnset: number[] = [];
+		// const nonsources: number[] = [];
+
+		// main: for(const [idx] of indexMoveMap) {
+		// 	const constraints = this.localConstraints.get(idx)!;
+		// 	for(const constraint of constraints) {
+		// 		if(constraint.type !== "LIMIT") continue;
+		// 		if(constraint.source === idx) sources.push(idx);
+		// 		else if(this.grid.getState(constraint.source) === CELL_STATE.UNSET) limitedByUnset.push(idx);
+		// 		else limitedBySet.push(idx);
+		// 		continue main;
+		// 	}
+		// 	nonsources.push(idx);
+		// }
+
+		// for(const cells of [sources, limitedBySet, limitedByUnset, nonsources]) {
+		// 	cells.sort((a, b) => neighborhoodLimitCounts[a] - neighborhoodLimitCounts[b]);
+		// }
+
+		// return nonsources.concat(limitedByUnset, sources, limitedBySet).flatMap(idx => indexMoveMap.get(idx)!);
 	}
 
 	private _createConstraints(): void
@@ -561,9 +578,12 @@ class Solver
 			updated = false;
 
 			for(let i = 0; i < this.grid.cellCnt; i++) {
-				if(!affected[i] || this.grid.getState(i) !== CELL_STATE.UNSET) continue;
+				// if(!affected[i] || this.grid.getState(i) !== CELL_STATE.UNSET) continue;
+				if(!affected[i]) continue;
+				const isSet = this.grid.getState(i) !== CELL_STATE.UNSET;
 
-				if(this._updateDomain(i)) {
+				if(this._updateDomain(i, isSet)) {
+				// if(this._updateDomain(i, false)) {
 					this._setAffected(i, affected);
 					updated = true;
 				}
@@ -595,8 +615,9 @@ class Solver
 		}
 	}
 
-	private _updateDomain(idx: number): boolean
+	private _updateDomain(idx: number, isSet: boolean): boolean
 	{
+		// if(isSet) debugger;
 		const domain = this.domains[idx];
 		const constraints = this.localConstraints.get(idx)!;
 		let changed = false;
@@ -604,12 +625,14 @@ class Solver
 		{
 			if (!domain[state]) continue;
 
-			this.grid.setState(idx, state);
+			if(!isSet) this.grid.setState(idx, state);
 
 			for (const constraint of constraints)
 			{
 				switch(constraint.type) {
 					case "LINE": {
+						if(isSet) continue;
+
 						const counts = [0, 0],
 							half = this.grid.size / 2,
 							indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
@@ -625,6 +648,8 @@ class Solver
 						break;}
 
 					case "ADJACENT":{
+						if(isSet) continue;
+						
 						const half = this.grid.size / 2,
 							aMasks = this.grid.getLineMasksAt(constraint.aIdx, constraint.isRow),
 							bMasks = this.grid.getLineMasksAt(constraint.bIdx, constraint.isRow),
@@ -671,16 +696,21 @@ class Solver
 				}
 			}
 
-			this.grid.setState(idx, CELL_STATE.UNSET);
+			// if(!this._isValid()) {
+			// 	domain[state] = false;
+			// 	changed = true;
+			// }
+
+			if(!isSet) this.grid.setState(idx, CELL_STATE.UNSET);
 		}
 
 		return changed;
 	}
 
-	private _findLeastEntropy(): { entropy: number, indices: number[] }
+	private _findMoves(): { entropy: number, moves: Move[] }
 	{
 		let lowestEntropy = 3;
-		const indices: number[] = [];
+		const moves: Move[] = [];
 		for (let idx = 0; idx < this.grid.cellCnt; idx++)
 		{
 			if(this.grid.getState(idx) !== CELL_STATE.UNSET) continue;
@@ -689,18 +719,19 @@ class Solver
 			const entropy = +domain[0] + +domain[1];
 
 			// If zero, then grid is invalid, discard immediately
-			if(entropy === 0) return { entropy, indices: [] };
+			if(entropy === 0) return { entropy, moves };
 			if(entropy > lowestEntropy) continue;
 			if (entropy < lowestEntropy)
 			{
 				lowestEntropy = entropy;
-				indices.length = 0;
+				moves.length = 0;
 			}
 			
-			indices.push(idx);
+			if(domain[CELL_STATE.A]) moves.push([idx, CELL_STATE.A]);
+			if(domain[CELL_STATE.B]) moves.push([idx, CELL_STATE.B]);
 		}
 
-		return { entropy: lowestEntropy, indices };
+		return { entropy: lowestEntropy, moves };
 	}
 
 	private _isValid(): boolean
@@ -750,8 +781,9 @@ class Solver
 						counts[CELL_STATE.A] > limit &&
 						counts[CELL_STATE.B] > limit
 						||
-						counts[sourceState] > limit ||
-						counts[sourceState] + counts[CELL_STATE.UNSET] < limit
+						sourceState !== CELL_STATE.UNSET && (
+							counts[sourceState] > limit ||
+							counts[sourceState] + counts[CELL_STATE.UNSET] < limit)
 					) {
 						return false;
 					}
