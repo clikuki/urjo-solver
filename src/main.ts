@@ -369,11 +369,17 @@ class Solver
 		if(this.isComplete) return;
 
 		let hasInvalidCombos = this._matchesNoGood();
-		while(hasInvalidCombos) {
-			this._revertToValidCollapseNode();
-			hasInvalidCombos = this._matchesNoGood();
+		if(hasInvalidCombos) {
+			let combination = this._createCombination();
+
+			while(hasInvalidCombos) {
+				combination.length = this.collapseStack.length * 2;
+				this._revertToValidCollapseNode();
+				hasInvalidCombos = this._matchesNoGood();
+			}
+			
+			this.noGoods.push(combination!);
 		}
-		if(hasInvalidCombos) return;
 
 		const { entropy, moves } = this._findMoves();
 		// console.log(entropy, moves);
@@ -421,14 +427,17 @@ class Solver
 				}
 			}
 
-			const noGood = [];
-			for(const { lastCell } of this.collapseStack) {
-				noGood.push(lastCell, this.grid.getState(lastCell))
-			}
-			this.noGoods.push(noGood);
-
+			this.noGoods.push(this._createCombination());
 			this._revertToValidCollapseNode();
 		}
+	}
+
+	private _createCombination(): number[] {
+		const noGood = [];
+		for(const { lastCell } of this.collapseStack) {
+			noGood.push(lastCell, this.grid.getState(lastCell))
+		}
+		return noGood;
 	}
 
 	private _revertToValidCollapseNode(): void {
@@ -728,7 +737,6 @@ class Solver
 				if(this.grid.getState(idx) !== state) continue noGoodChecks;
 			}
 
-			debugger;
 			return true;
 		}
 
@@ -1226,4 +1234,4 @@ function main()
 	window.render = () => updateGridDisplay(gridEl, gridData);
 }
 
-main()
+main();
