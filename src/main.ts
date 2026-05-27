@@ -349,19 +349,19 @@ class Solver
 		this._createConstraints();
 
 		const emptyIndices: number[] = [];
-		for (let idx = 0; idx < grid.cellCnt; idx++)
-		{
+		for(let idx = 0; idx < grid.cellCnt; idx++) {
 			const state = grid.getState(idx);
 			this.domains[idx] = {
 				[CELL_STATE.A]: state !== CELL_STATE.B,
 				[CELL_STATE.B]: state !== CELL_STATE.A,
 			};
 			
-			if (state === CELL_STATE.UNSET)
-			{
-				emptyIndices.push(idx);
-				this._updateDomain(idx, false);
-			}
+			if (state === CELL_STATE.UNSET) emptyIndices.push(idx);
+		}
+
+		for (const idx of emptyIndices)
+		{
+			this._updateDomain(idx, false);
 		}
 	}
 
@@ -693,7 +693,13 @@ class Solver
 						for (const i of constraint.counting)
 						{
 							const state = this.grid.getState(i);
-							counts[state]++;
+							if(state !== CELL_STATE.UNSET) counts[state]++;
+							else {
+								const ndom = this.domains[i];
+								if(!ndom[CELL_STATE.A]) counts[CELL_STATE.B]++;
+								else if(!ndom[CELL_STATE.B]) counts[CELL_STATE.A]++;
+								else counts[CELL_STATE.UNSET]++;
+							}
 						}
 
 						if(
