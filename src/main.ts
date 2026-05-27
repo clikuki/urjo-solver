@@ -327,14 +327,15 @@ class Solver
 	public stopAfterFirstSolution = true;
 	public solutions: string[] = [];
 
+	private grid: GridData;
 	private collapseStack: CollapsePoint[] = [];
 	private domains: Record<CELL_STATE.A | CELL_STATE.B, boolean>[] = [];
 	private allConstraints: Constraint[] = [];
 	private localConstraints = new Map<number, Constraint[]>();
 	private noGoods: number[][] = []; // serial list; idx_1, state_1, ..., idx_n, state_n
 
-	constructor(private grid: GridData) {
-		this.useGrid(grid);
+	constructor(grid?: GridData) {
+		if(grid) this.useGrid(grid);
 	}
 
 	public useGrid(grid: GridData)
@@ -1155,6 +1156,13 @@ function main()
 		}
 	})
 
+	solveBtn.addEventListener("contextmenu", (e) => {
+		e.preventDefault();
+
+		while(!solver.isComplete) solver.step();
+		updateGridDisplay(gridEl, gridData);
+	})
+
 	resetBtn.addEventListener("click", reset);
 
 	clearBtn.addEventListener("click", () => {
@@ -1189,13 +1197,23 @@ function main()
 		const presetEl = btnEl.parentElement;
 		if(!(presetEl instanceof HTMLElement && presetEl.classList.contains("presets--preset"))) return;
 
-		const action = btnEl.getAttribute("data-action") as "USE" | "REPLACE" | "DELETE";
+		const action = btnEl.getAttribute("data-action") as "USE" | "REPLACE" | "TIME" | "DELETE";
 		
 		switch(action) {
 			case "USE":
 				presetStr = presets.get(presetEl.id)!;
 				reset();
 				sizeSel.value = gridData.size.toString();
+				break;
+
+			case "TIME":
+				const tmpPreset = presets.get(presetEl.id)!;
+				const tmpGrid = GridData.fromString(tmpPreset)
+				const tmpSolver = new Solver(tmpGrid);
+				const startTime = performance.now();
+				while(!tmpSolver.isComplete) tmpSolver.step();
+				const duration = (performance.now() - startTime) / 1000;
+				console.log(`Took ${duration}s to complete.`);
 				break;
 
 			case "REPLACE":
@@ -1217,12 +1235,13 @@ function main()
 		}
 		else keepSolving = false;
 
+		let stateStr = "IN-PROGRESS";
 		if(solver.isComplete) {
-			stateDisplayEl.setAttribute("data-state", "COMPLETE");
+			if(solver.solutions.length) stateStr = "COMPLETE";
+			else stateStr = "INVALID";
 		}
-		else {
-			stateDisplayEl.setAttribute("data-state", "IN-PROGRESS");
-		}
+
+		stateDisplayEl.setAttribute("data-state", stateStr);
 	})
 
 	loadPresets(presetsListEl);

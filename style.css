@@ -69,7 +69,7 @@ button {
 
 .presets--preset {
 	display: grid;
-	grid-template-columns: 1fr min-content min-content;
+	grid-template-columns: 1fr min-content min-content min-content;
 	gap: .3rem;
 	border-bottom: 1px solid white;
 }
@@ -116,6 +116,10 @@ button {
 
 .state-display[data-state="COMPLETE"] {
 	background-color: green;
+}
+
+.state-display[data-state="INVALID"] {
+	background-color: red;
 }
 
 .grid {
