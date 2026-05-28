@@ -1165,7 +1165,17 @@ function main()
 	solveBtn.addEventListener("contextmenu", (e) => {
 		e.preventDefault();
 
+		keepSolving = false;
+		if(refreshSolver) {
+			presetStr = gridData.toString();
+			solver.useGrid(gridData);
+		}
+
+		const startTime = performance.now();
 		while(!solver.isComplete) solver.step();
+		const duration = (performance.now() - startTime) / 1000;
+		console.log(`Remaining solve took ${duration}s to complete.`);
+
 		updateGridDisplay(gridEl, gridData);
 	})
 
