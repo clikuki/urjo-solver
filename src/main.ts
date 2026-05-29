@@ -325,6 +325,7 @@ class Solver
 {
 	public isComplete = false;
 	public stopAfterFirstSolution = true;
+	public noSort = false;
 	public solutions: string[] = [];
 
 	private grid: GridData;
@@ -467,48 +468,49 @@ class Solver
 	}
 
 	private _orderMoves(moves: Move[]): Move[] {
-		return moves.reverse();
+		if(this.noSort) return moves.reverse();
 
-		// const indexMoveMap = moves.reduce((m, mv) => {
-		// 	const idx = mv[0];
-		// 	if(m.has(idx)) m.get(idx)!.push(mv);
-		// 	else m.set(idx, [mv]);
-		// 	return m;
-		// }, new Map<number, Move[]>());
-		// const neighborhoodLimitCounts: number[] = [];
-		// const limited = this.grid.getLimitedCells();
-		// for(const [idx] of indexMoveMap) {
-		// 	let limCnt = this.localConstraints.get(idx)!.length;
+		const indexMoveMap = moves.reduce((m, mv) => {
+			const idx = mv[0];
+			if(m.has(idx)) m.get(idx)!.push(mv);
+			else m.set(idx, [mv]);
+			return m;
+		}, new Map<number, Move[]>());
+		
+		const neighborhoodLimitCounts: number[] = [];
+		const limited = this.grid.getLimitedCells();
+		for(const [idx] of indexMoveMap) {
+			let limCnt = this.localConstraints.get(idx)!.length;
 
-		// 	for(const neigborIdx of this.grid.getNeighbors(idx)) {
-		// 		if(limited.includes(neigborIdx)) limCnt++;
-		// 	}
+			for(const neigborIdx of this.grid.getNeighbors(idx)) {
+				if(limited.includes(neigborIdx)) limCnt++;
+			}
 
-		// 	neighborhoodLimitCounts[idx] = limCnt;
-		// }
+			neighborhoodLimitCounts[idx] = limCnt;
+		}
 
-		// const sources: number[] = [];
-		// const limitedBySet: number[] = [];
-		// const limitedByUnset: number[] = [];
-		// const nonsources: number[] = [];
+		const sources: number[] = [];
+		const limitedBySet: number[] = [];
+		const limitedByUnset: number[] = [];
+		const nonsources: number[] = [];
 
-		// main: for(const [idx] of indexMoveMap) {
-		// 	const constraints = this.localConstraints.get(idx)!;
-		// 	for(const constraint of constraints) {
-		// 		if(constraint.type !== "LIMIT") continue;
-		// 		if(constraint.source === idx) sources.push(idx);
-		// 		else if(this.grid.getState(constraint.source) === CELL_STATE.UNSET) limitedByUnset.push(idx);
-		// 		else limitedBySet.push(idx);
-		// 		continue main;
-		// 	}
-		// 	nonsources.push(idx);
-		// }
+		main: for(const [idx] of indexMoveMap) {
+			const constraints = this.localConstraints.get(idx)!;
+			for(const constraint of constraints) {
+				if(constraint.type !== "LIMIT") continue;
+				if(constraint.source === idx) sources.push(idx);
+				else if(this.grid.getState(constraint.source) === CELL_STATE.UNSET) limitedByUnset.push(idx);
+				else limitedBySet.push(idx);
+				continue main;
+			}
+			nonsources.push(idx);
+		}
 
-		// for(const cells of [sources, limitedBySet, limitedByUnset, nonsources]) {
-		// 	cells.sort((a, b) => neighborhoodLimitCounts[a] - neighborhoodLimitCounts[b]);
-		// }
+		for(const cells of [sources, limitedBySet, limitedByUnset, nonsources]) {
+			cells.sort((a, b) => neighborhoodLimitCounts[a] - neighborhoodLimitCounts[b]);
+		}
 
-		// return nonsources.concat(limitedByUnset, sources, limitedBySet).flatMap(idx => indexMoveMap.get(idx)!);
+		return nonsources.concat(limitedByUnset, sources, limitedBySet).flatMap(idx => indexMoveMap.get(idx)!);
 	}
 
 	private _createConstraints(): void
