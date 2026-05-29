@@ -131,7 +131,7 @@ class GridData
 		}
 	}
 
-	public getLimitedCells(): readonly number[]
+	public getLimitedCells(): number[]
 	{
 		return Array.from(this._limits.keys());
 	}
@@ -331,6 +331,7 @@ class Solver
 	private grid: GridData;
 	private collapseStack: CollapsePoint[] = [];
 	private domains: Record<CELL_STATE.A | CELL_STATE.B, boolean>[] = [];
+	private limitedCells: number[];
 	private allConstraints: Constraint[] = [];
 	private localConstraints = new Map<number, Constraint[]>();
 	private noGoods: number[][] = []; // serial list; idx_1, state_1, ..., idx_n, state_n
@@ -344,6 +345,7 @@ class Solver
 		this.grid = grid;
 		this.collapseStack.length = 0;
 		this.domains.length = 0;
+		this.limitedCells = this.grid.getLimitedCells();
 		this.isComplete = false;
 		this.solutions.length = 0;
 		this.noGoods.length = 0;
@@ -478,12 +480,11 @@ class Solver
 		}, new Map<number, Move[]>());
 		
 		const neighborhoodLimitCounts: number[] = [];
-		const limited = this.grid.getLimitedCells();
 		for(const [idx] of indexMoveMap) {
 			let limCnt = this.localConstraints.get(idx)!.length;
 
-			for(const neigborIdx of this.grid.getNeighbors(idx)) {
-				if(limited.includes(neigborIdx)) limCnt++;
+			for(const neighborIdx of this.grid.getNeighbors(idx)) {
+				if(this.limitedCells.includes(neighborIdx)) limCnt++;
 			}
 
 			neighborhoodLimitCounts[idx] = limCnt;
@@ -546,8 +547,7 @@ class Solver
 			});
 		}
 
-		const limitIndices = this.grid.getLimitedCells();
-		for (const idx of limitIndices)
+		for (const idx of this.limitedCells)
 		{
 			const limit = this.grid.getLimitCount(idx);
 			const neighbors = this.grid.getLimitNeighbors(idx);
