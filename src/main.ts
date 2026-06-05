@@ -293,7 +293,7 @@ class GridData
 
 type Move = [number, CELL_STATE.A | CELL_STATE.B];
 interface CollapsePoint {
-	lowest: Move[];
+	nextAttempt?: Move;
 	grid: string,
 	domain: string,
 	lastCell: number,
@@ -334,7 +334,7 @@ class Solver
 	private limitedCells: number[];
 	private allConstraints: Constraint[] = [];
 	private localConstraints = new Map<number, Constraint[]>();
-	private noGoods: number[][] = []; // serial list; idx_1, state_1, ..., idx_n, state_n
+	// private noGoods: number[][] = []; // serial list; idx_1, state_1, ..., idx_n, state_n
 
 	constructor(grid?: GridData) {
 		if(grid) this.useGrid(grid);
@@ -348,7 +348,7 @@ class Solver
 		this.limitedCells = this.grid.getLimitedCells();
 		this.isComplete = false;
 		this.solutions.length = 0;
-		this.noGoods.length = 0;
+		// this.noGoods.length = 0;
 		this._createConstraints();
 
 		const emptyIndices: number[] = [];
@@ -372,18 +372,18 @@ class Solver
 	{
 		if(this.isComplete) return;
 
-		let hasInvalidCombos = this._matchesNoGood();
-		if(hasInvalidCombos) {
-			let combination = this._createCombination();
+		// let hasInvalidCombos = this._matchesNoGood();
+		// if(hasInvalidCombos) {
+		// 	let combination = this._createCombination();
 
-			while(hasInvalidCombos) {
-				combination.length = this.collapseStack.length * 2;
-				this._revertToValidCollapseNode();
-				hasInvalidCombos = this._matchesNoGood();
-			}
+		// 	while(hasInvalidCombos) {
+		// 		combination.length = this.collapseStack.length * 2 - 2;
+		// 		this._revertToValidCollapseNode();
+		// 		hasInvalidCombos = this._matchesNoGood();
+		// 	}
 			
-			this.noGoods.push(combination!);
-		}
+		// 	this.noGoods.push(combination!);
+		// }
 
 		const { entropy, moves } = this._findMoves();
 		// console.log(entropy, moves);
@@ -399,12 +399,13 @@ class Solver
 		}
 		else if(entropy === 2)
 		{
-			// Create new collapse point, then try first index
+			// Create new collapse point, then try cell
 			const orderedIndices = this._orderMoves(moves);
 			const [idx, state] = orderedIndices.pop()!;
+			const nextMoveAttempt = orderedIndices.pop()!;
 
 			this.collapseStack.push({
-				lowest: orderedIndices,
+				nextAttempt: nextMoveAttempt[0] !== idx ? undefined : nextMoveAttempt,
 				grid: this.grid.toString(),
 				domain: JSON.stringify(this.domains),
 				lastCell: idx,
@@ -431,40 +432,45 @@ class Solver
 				}
 			}
 
-			this.noGoods.push(this._createCombination());
+			// const last = this.collapseStack.at(-1)!.lastCell;
+			// console.log(last, this.grid.getState(last));
+
+			// const combo = this._createCombination();
+			// this.noGoods.push(combo);
 			this._revertToValidCollapseNode();
 		}
 	}
 
-	private _createCombination(): number[] {
-		const noGood = [];
-		for(const { lastCell } of this.collapseStack) {
-			noGood.push(lastCell, this.grid.getState(lastCell))
-		}
-		return noGood;
-	}
+	// private _createCombination(): number[] {
+	// 	const noGood = [];
+	// 	for(const { lastCell } of this.collapseStack) {
+	// 		noGood.push(lastCell, this.grid.getState(lastCell))
+	// 	}
+	// 	return noGood;
+	// }
 
 	private _revertToValidCollapseNode(): void {
 		let collapsed: CollapsePoint | undefined;
 		while(!collapsed) {
 			collapsed = this.collapseStack.at(-1);
-			// console.log(collapsed);
 			if(!collapsed) {
 				this.isComplete = true;
 				return;
 			}
 
-			const move = collapsed.lowest.pop();
-			if(move !== undefined) {
+			const move = collapsed.nextAttempt;
+			if(move) {
 				const [idx, state] = move;
+				collapsed.nextAttempt = undefined;
+				
 				this.grid.parseStringStates(collapsed.grid);
 				this.domains = JSON.parse(collapsed.domain);
 				this.grid.setState(idx, state);
 				this._updateSurroundingDomain([idx]);
 			}
 			else {
-				this.collapseStack.pop();
 				collapsed = undefined;
+				this.collapseStack.pop();
 			}
 		}
 	}
@@ -738,19 +744,21 @@ class Solver
 		return changed;
 	}
 
-	private _matchesNoGood(): boolean {
-		noGoodChecks: for(const noGood of this.noGoods) {
-			for(let i = 1, idx, state; i < noGood.length; i += 2) {
-				idx = noGood[i-1];
-				state = noGood[i];
-				if(this.grid.getState(idx) !== state) continue noGoodChecks;
-			}
+	// private _matchesNoGood(): boolean {
+	// 	noGoodChecks: for(let i = this.noGoods.length - 1, noGood; i >= 0; i--) {
+	// 		noGood = this.noGoods[i];
+	// 		for(let j = 1, idx, state; j < noGood.length; j += 2) {
+	// 			idx = noGood[j-1];
+	// 			state = noGood[j];
+	// 			if(this.grid.getState(idx) !== state) continue noGoodChecks;
+	// 		}
 
-			return true;
-		}
+	// 		console.log("FAILED")
+	// 		return true;
+	// 	}
 
-		return false;
-	}
+	// 	return false;
+	// }
 
 	private _findMoves(): { entropy: number, moves: Move[] }
 	{
