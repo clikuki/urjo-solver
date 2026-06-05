@@ -393,6 +393,7 @@ class Solver
 			for (const [idx, state] of moves)
 			{
 				this.grid.setState(idx, state);
+				this.domains[idx][state === CELL_STATE.A ? CELL_STATE.B : CELL_STATE.A] = false;
 			}
 
 			this._updateSurroundingDomain(moves.map(([i]) => i));
@@ -412,6 +413,7 @@ class Solver
 			});
 
 			this.grid.setState(idx, state);
+			this.domains[idx][state === CELL_STATE.A ? CELL_STATE.B : CELL_STATE.A] = false;
 			this._updateSurroundingDomain([idx]);
 			
 			// for(let i = 0; i < this.grid.cellCnt; i++){
@@ -466,6 +468,7 @@ class Solver
 				this.grid.parseStringStates(collapsed.grid);
 				this.domains = JSON.parse(collapsed.domain);
 				this.grid.setState(idx, state);
+				this.domains[idx][state === CELL_STATE.A ? CELL_STATE.B : CELL_STATE.A] = false;
 				this._updateSurroundingDomain([idx]);
 			}
 			else {
