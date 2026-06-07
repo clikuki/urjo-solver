@@ -1,0 +1,573 @@
+type Move = [number, CELL_STATE.A | CELL_STATE.B];
+interface CollapsePoint {
+	nextAttempt?: Move;
+	grid: string,
+	domain: string,
+	lastCell: number,
+}
+
+type Constraint = LineConstraint | AdjacencyConstraint | LimitConstraint;
+interface LineConstraint
+{
+	type: "LINE";
+	isRow: boolean;
+	lineIdx: number;
+}
+interface AdjacencyConstraint
+{
+	type: "ADJACENT";
+	isRow: boolean;
+	aIdx: number;
+	bIdx: number;
+}
+interface LimitConstraint
+{
+	type: "LIMIT";
+	source: number;
+	count: number;
+	counting: number[];
+}
+
+class BiStateSolver
+{
+	public isComplete = false;
+	public stopAfterFirstSolution = true;
+	public noSort = false;
+	public solutions: string[] = [];
+
+	private grid: GridData;
+	private collapseStack: CollapsePoint[] = [];
+	private domains: Record<CELL_STATE.A | CELL_STATE.B, boolean>[] = [];
+	private limitedCells: number[];
+	private allConstraints: Constraint[] = [];
+	private localConstraints = new Map<number, Constraint[]>();
+	// private noGoods: number[][] = []; // serial list; idx_1, state_1, ..., idx_n, state_n
+
+	constructor(grid?: GridData) {
+		if(grid) this.useGrid(grid);
+	}
+
+	public useGrid(grid: GridData)
+	{
+		this.grid = grid;
+		this.collapseStack.length = 0;
+		this.domains.length = 0;
+		this.limitedCells = this.grid.getLimitedCells();
+		this.isComplete = false;
+		this.solutions.length = 0;
+		// this.noGoods.length = 0;
+		this._createConstraints();
+
+		const emptyIndices: number[] = [];
+		for(let idx = 0; idx < grid.cellCnt; idx++) {
+			const state = grid.getState(idx);
+			this.domains[idx] = {
+				[CELL_STATE.A]: state !== CELL_STATE.B,
+				[CELL_STATE.B]: state !== CELL_STATE.A,
+			};
+			
+			if (state === CELL_STATE.UNSET) emptyIndices.push(idx);
+		}
+
+		for (const idx of emptyIndices)
+		{
+			this._updateDomain(idx, false);
+		}
+	}
+
+	public step(): void
+	{
+		if(this.isComplete) return;
+
+		// let hasInvalidCombos = this._matchesNoGood();
+		// if(hasInvalidCombos) {
+		// 	let combination = this._createCombination();
+
+		// 	while(hasInvalidCombos) {
+		// 		combination.length = this.collapseStack.length * 2 - 2;
+		// 		this._revertToValidCollapseNode();
+		// 		hasInvalidCombos = this._matchesNoGood();
+		// 	}
+			
+		// 	this.noGoods.push(combination!);
+		// }
+
+		const { entropy, moves } = this._findMoves();
+		// console.log(entropy, moves);
+
+		if (entropy === 1)
+		{
+			for (const [idx, state] of moves)
+			{
+				this.grid.setState(idx, state);
+				this.domains[idx][state === CELL_STATE.A ? CELL_STATE.B : CELL_STATE.A] = false;
+			}
+
+			this._updateSurroundingDomain(moves.map(([i]) => i));
+		}
+		else if(entropy === 2)
+		{
+			// Create new collapse point, then try cell
+			const orderedIndices = this._orderMoves(moves);
+			const [idx, state] = orderedIndices.pop()!;
+			const nextMoveAttempt = orderedIndices.pop()!;
+
+			this.collapseStack.push({
+				nextAttempt: nextMoveAttempt[0] !== idx ? undefined : nextMoveAttempt,
+				grid: this.grid.toString(),
+				domain: JSON.stringify(this.domains),
+				lastCell: idx,
+			});
+
+			this.grid.setState(idx, state);
+			this.domains[idx][state === CELL_STATE.A ? CELL_STATE.B : CELL_STATE.A] = false;
+			this._updateSurroundingDomain([idx]);
+			
+			// for(let i = 0; i < this.grid.cellCnt; i++){
+			// 	if(this.grid.getState(i) !== CELL_STATE.UNSET) continue;
+			// 	console.log(`${i} : `, this.domains[i]);
+			// }
+		}
+		else {
+			// Either 1. dead-end (entropy = 0) or 2. one solution found (entropy = 3)
+			// Either case, backtrack to last collapse point
+
+			if(entropy !== 0 && this._isValid()) {
+				this.solutions.push(this.grid.toString());
+				console.log(this.solutions.at(-1));
+				if(this.stopAfterFirstSolution) {
+					this.isComplete = true;
+					return;
+				}
+			}
+
+			// const last = this.collapseStack.at(-1)!.lastCell;
+			// console.log(last, this.grid.getState(last));
+
+			// const combo = this._createCombination();
+			// this.noGoods.push(combo);
+			this._revertToValidCollapseNode();
+		}
+	}
+
+	// private _createCombination(): number[] {
+	// 	const noGood = [];
+	// 	for(const { lastCell } of this.collapseStack) {
+	// 		noGood.push(lastCell, this.grid.getState(lastCell))
+	// 	}
+	// 	return noGood;
+	// }
+
+	private _revertToValidCollapseNode(): void {
+		let collapsed: CollapsePoint | undefined;
+		while(!collapsed) {
+			collapsed = this.collapseStack.at(-1);
+			if(!collapsed) {
+				this.isComplete = true;
+				return;
+			}
+
+			const move = collapsed.nextAttempt;
+			if(move) {
+				const [idx, state] = move;
+				collapsed.nextAttempt = undefined;
+				
+				this.grid.parseStringStates(collapsed.grid);
+				this.domains = JSON.parse(collapsed.domain);
+				this.grid.setState(idx, state);
+				this.domains[idx][state === CELL_STATE.A ? CELL_STATE.B : CELL_STATE.A] = false;
+				this._updateSurroundingDomain([idx]);
+			}
+			else {
+				collapsed = undefined;
+				this.collapseStack.pop();
+			}
+		}
+	}
+
+	private _orderMoves(moves: Move[]): Move[] {
+		if(this.noSort) return moves.reverse();
+
+		const indexMoveMap = moves.reduce((m, mv) => {
+			const idx = mv[0];
+			if(m.has(idx)) m.get(idx)!.push(mv);
+			else m.set(idx, [mv]);
+			return m;
+		}, new Map<number, Move[]>());
+		
+		const neighborhoodLimitCounts: number[] = [];
+		for(const [idx] of indexMoveMap) {
+			let limCnt = this.localConstraints.get(idx)!.length;
+
+			for(const neighborIdx of this.grid.getNeighbors(idx)) {
+				if(this.limitedCells.includes(neighborIdx)) limCnt++;
+			}
+
+			neighborhoodLimitCounts[idx] = limCnt;
+		}
+
+		const sources: number[] = [];
+		const limitedBySet: number[] = [];
+		const limitedByUnset: number[] = [];
+		const nonsources: number[] = [];
+
+		main: for(const [idx] of indexMoveMap) {
+			const constraints = this.localConstraints.get(idx)!;
+			for(const constraint of constraints) {
+				if(constraint.type !== "LIMIT") continue;
+				if(constraint.source === idx) sources.push(idx);
+				else if(this.grid.getState(constraint.source) === CELL_STATE.UNSET) limitedByUnset.push(idx);
+				else limitedBySet.push(idx);
+				continue main;
+			}
+			nonsources.push(idx);
+		}
+
+		for(const cells of [sources, limitedBySet, limitedByUnset, nonsources]) {
+			cells.sort((a, b) => neighborhoodLimitCounts[a] - neighborhoodLimitCounts[b]);
+		}
+
+		return nonsources.concat(limitedByUnset, sources, limitedBySet).flatMap(idx => indexMoveMap.get(idx)!);
+	}
+
+	private _createConstraints(): void
+	{
+		this.allConstraints.length = 0;
+		this.localConstraints.clear();
+
+		const size = this.grid.size;
+		for (let i = 0; i < size; i++) {
+			this.allConstraints.push({
+				type: "LINE",
+				isRow: false,
+				lineIdx: i,
+			}, {
+				type: "LINE",
+				isRow: true,
+				lineIdx: i,
+			})
+		}
+
+		for (let i = 1; i < size; i++)
+		{
+			this.allConstraints.push({
+				type: "ADJACENT",
+				isRow: false,
+				aIdx: i - 1,
+				bIdx: i,
+			}, {
+				type: "ADJACENT",
+				isRow: true,
+				aIdx: i - 1,
+				bIdx: i,
+			});
+		}
+
+		for (const idx of this.limitedCells)
+		{
+			const limit = this.grid.getLimitCount(idx);
+			const neighbors = this.grid.getLimitNeighbors(idx);
+			this.allConstraints.push({
+				type: "LIMIT",
+				source: idx,
+				count: limit,
+				counting: neighbors,
+			})
+		}
+
+		for (const constraint of this.allConstraints)
+		{
+			switch(constraint.type) {
+				case "LINE":
+					const indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+					for (const idx of indices)
+					{
+						this._pushToMapArr(idx, constraint);
+					}
+					break;
+
+				case "ADJACENT":
+					const aIndices = this.grid.getLineIndicesAt(constraint.aIdx, constraint.isRow);
+					const bIndices = this.grid.getLineIndicesAt(constraint.bIdx, constraint.isRow);
+					for (let i = 0; i < size; i++)
+					{
+						this._pushToMapArr(aIndices[i], constraint);
+						this._pushToMapArr(bIndices[i], constraint);
+					}
+					break;
+
+				case "LIMIT":
+					this._pushToMapArr(constraint.source, constraint);
+					for (const idx of constraint.counting)
+					{
+						this._pushToMapArr(idx, constraint);
+					}
+					break;
+
+				default:
+					throw new Error("Unhandled constraint during creation.");
+			}
+		}
+	}
+
+	private _updateSurroundingDomain(indices: number[]): void {
+		const affected: boolean[] = [];
+		for(const idx of indices) this._setAffected(idx, affected);
+
+		let updated;
+		do {
+			updated = false;
+
+			for(let i = 0; i < this.grid.cellCnt; i++) {
+				// if(!affected[i] || this.grid.getState(i) !== CELL_STATE.UNSET) continue;
+				if(!affected[i]) continue;
+				const isSet = this.grid.getState(i) !== CELL_STATE.UNSET;
+
+				if(this._updateDomain(i, isSet)) {
+				// if(this._updateDomain(i, false)) {
+					this._setAffected(i, affected);
+					updated = true;
+				}
+			}
+		}
+		while(updated);
+	}
+
+	private _setAffected(idx: number, affected: boolean[]): void {
+		const constraints = this.localConstraints.get(idx)!;
+		for(const constraint of constraints) {
+			switch(constraint.type) {
+				case "LINE":
+					const indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+					for(const i of indices) affected[i] = true;
+					break;
+
+				case "ADJACENT":
+					break;
+
+				case "LIMIT":
+					affected[constraint.source] = true;
+					for(const i of constraint.counting) affected[i] = true;
+					break;
+
+				default:
+					throw new Error("Invalid constraint during domain updating.");
+			}
+		}
+	}
+
+	private _updateDomain(idx: number, isSet: boolean): boolean
+	{
+		// if(isSet) debugger;
+		const domain = this.domains[idx];
+		const constraints = this.localConstraints.get(idx)!;
+		let changed = false;
+		for (const state of [CELL_STATE.A, CELL_STATE.B] as const)
+		{
+			if (!domain[state]) continue;
+
+			if(!isSet) this.grid.setState(idx, state);
+
+			for (const constraint of constraints)
+			{
+				switch(constraint.type) {
+					case "LINE": {
+						if(isSet) continue;
+
+						const counts = [0, 0],
+							half = this.grid.size / 2,
+							indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+
+						for(const i of indices) {
+							const cellState = this.grid.getState(i);
+							if(cellState !== CELL_STATE.UNSET && ++counts[cellState] > half) {
+								domain[state] = false;
+								break;
+							}
+						}
+
+						break;}
+
+					case "ADJACENT":{
+						if(isSet) continue;
+						
+						const half = this.grid.size / 2,
+							aMasks = this.grid.getLineMasksAt(constraint.aIdx, constraint.isRow),
+							bMasks = this.grid.getLineMasksAt(constraint.bIdx, constraint.isRow),
+							counts = this.grid.getLineCountsAt(constraint.bIdx, constraint.isRow);
+
+						if(
+							(counts[0] === half && (aMasks[0] === bMasks[0])) ||
+							(counts[1] === half && (aMasks[1] === bMasks[1]))
+						) domain[state] = false;
+
+						break;}
+
+					case "LIMIT":{
+						const limit = constraint.count;
+						const sourceState = this.grid.getState(constraint.source);
+
+						const counts = [0, 0, 0];
+						for (const i of constraint.counting)
+						{
+							const state = this.grid.getState(i);
+							if(state !== CELL_STATE.UNSET) counts[state]++;
+							else {
+								const ndom = this.domains[i];
+								if(!ndom[CELL_STATE.A]) counts[CELL_STATE.B]++;
+								else if(!ndom[CELL_STATE.B]) counts[CELL_STATE.A]++;
+								else counts[CELL_STATE.UNSET]++;
+							}
+						}
+
+						if(
+							sourceState === CELL_STATE.UNSET && 
+							counts[CELL_STATE.A] > limit &&
+							counts[CELL_STATE.B] > limit
+							||
+							sourceState !== CELL_STATE.UNSET && (
+								counts[sourceState] > limit ||
+								counts[sourceState] + counts[CELL_STATE.UNSET] < limit)
+						) {
+							domain[state] = false;
+						}
+
+						break;}
+
+					default: throw new Error("Invalid local constraint during domain collapse.");
+				}
+				
+				if (!domain[state]) {
+					changed = true;
+					break;
+				}
+			}
+
+			// if(!this._isValid()) {
+			// 	domain[state] = false;
+			// 	changed = true;
+			// }
+
+			if(!isSet) this.grid.setState(idx, CELL_STATE.UNSET);
+		}
+
+		return changed;
+	}
+
+	// private _matchesNoGood(): boolean {
+	// 	noGoodChecks: for(let i = this.noGoods.length - 1, noGood; i >= 0; i--) {
+	// 		noGood = this.noGoods[i];
+	// 		for(let j = 1, idx, state; j < noGood.length; j += 2) {
+	// 			idx = noGood[j-1];
+	// 			state = noGood[j];
+	// 			if(this.grid.getState(idx) !== state) continue noGoodChecks;
+	// 		}
+
+	// 		console.log("FAILED")
+	// 		return true;
+	// 	}
+
+	// 	return false;
+	// }
+
+	private _findMoves(): { entropy: number, moves: Move[] }
+	{
+		let lowestEntropy = 3;
+		const moves: Move[] = [];
+		for (let idx = 0; idx < this.grid.cellCnt; idx++)
+		{
+			if(this.grid.getState(idx) !== CELL_STATE.UNSET) continue;
+			
+			const domain = this.domains[idx];
+			const entropy = +domain[0] + +domain[1];
+
+			// If zero, then grid is invalid, discard immediately
+			if(entropy === 0) return { entropy, moves };
+			if(entropy > lowestEntropy) continue;
+			if (entropy < lowestEntropy)
+			{
+				lowestEntropy = entropy;
+				moves.length = 0;
+			}
+			
+			if(domain[CELL_STATE.A]) moves.push([idx, CELL_STATE.A]);
+			if(domain[CELL_STATE.B]) moves.push([idx, CELL_STATE.B]);
+		}
+
+		return { entropy: lowestEntropy, moves };
+	}
+
+	private _isValid(): boolean
+	{
+		for(const constraint of this.allConstraints) {
+			switch(constraint.type) {
+				case "LINE": {
+					const counts = [0, 0],
+						half = this.grid.size / 2,
+						indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+
+					for(const i of indices) {
+						const cellState = this.grid.getState(i);
+						if(cellState !== CELL_STATE.UNSET && ++counts[cellState] > half) {
+							return false;
+						}
+					}
+					
+					break; }
+
+				case "ADJACENT": {
+					const half = this.grid.size / 2,
+						aMasks = this.grid.getLineMasksAt(constraint.aIdx, constraint.isRow),
+						bMasks = this.grid.getLineMasksAt(constraint.bIdx, constraint.isRow),
+						counts = this.grid.getLineCountsAt(constraint.bIdx, constraint.isRow);
+
+					if(
+						(counts[0] === half && (aMasks[0] === bMasks[0])) ||
+						(counts[1] === half && (aMasks[1] === bMasks[1]))
+					) return false;
+
+					break; }
+
+				case "LIMIT": {
+					const limit = constraint.count;
+					const sourceState = this.grid.getState(constraint.source);
+
+					const counts = [0, 0, 0];
+					for (const i of constraint.counting)
+					{
+						const state = this.grid.getState(i);
+						counts[state]++;
+					}
+
+					if(
+						sourceState === CELL_STATE.UNSET && 
+						counts[CELL_STATE.A] > limit &&
+						counts[CELL_STATE.B] > limit
+						||
+						sourceState !== CELL_STATE.UNSET && (
+							counts[sourceState] > limit ||
+							counts[sourceState] + counts[CELL_STATE.UNSET] < limit)
+					) {
+						return false;
+					}
+
+					break; }
+
+				default: throw new Error("Invalid constraint during whole validation.");
+			}
+		}
+
+		return true;
+	}
+
+	private _pushToMapArr(key: number, cons: Constraint)
+	{
+		let list = this.localConstraints.get(key);
+		if (!list)
+		{
+			list = [];
+			this.localConstraints.set(key, list);
+		}
+		list.push(cons);
+	}
+}
