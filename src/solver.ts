@@ -1,10 +1,4 @@
 type Move = [number, CELL_STATE.A | CELL_STATE.B];
-interface CollapsePoint {
-	nextAttempt?: Move;
-	grid: string,
-	domain: string,
-	lastCell: number,
-}
 
 type Constraint = LineConstraint | AdjacencyConstraint | LimitConstraint;
 interface LineConstraint
@@ -28,6 +22,12 @@ interface LimitConstraint
 	counting: number[];
 }
 
+interface BiStateCollapsePoint {
+	nextAttempt?: Move;
+	grid: string,
+	domain: string,
+	lastCell: number,
+}
 class BiStateSolver
 {
 	public isComplete = false;
@@ -36,7 +36,7 @@ class BiStateSolver
 	public solutions: string[] = [];
 
 	private grid: GridData;
-	private collapseStack: CollapsePoint[] = [];
+	private collapseStack: BiStateCollapsePoint[] = [];
 	private domains: Record<CELL_STATE.A | CELL_STATE.B, boolean>[] = [];
 	private limitedCells: number[];
 	private allConstraints: Constraint[] = [];
@@ -159,7 +159,7 @@ class BiStateSolver
 	// }
 
 	private _revertToValidCollapseNode(): void {
-		let collapsed: CollapsePoint | undefined;
+		let collapsed: BiStateCollapsePoint | undefined;
 		while(!collapsed) {
 			collapsed = this.collapseStack.at(-1);
 			if(!collapsed) {
@@ -282,7 +282,7 @@ class BiStateSolver
 					const indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
 					for (const idx of indices)
 					{
-						this._pushToMapArr(idx, constraint);
+						pushToMapArr(idx, constraint, this.localConstraints);
 					}
 					break;
 
@@ -291,16 +291,16 @@ class BiStateSolver
 					const bIndices = this.grid.getLineIndicesAt(constraint.bIdx, constraint.isRow);
 					for (let i = 0; i < size; i++)
 					{
-						this._pushToMapArr(aIndices[i], constraint);
-						this._pushToMapArr(bIndices[i], constraint);
+						pushToMapArr(aIndices[i], constraint, this.localConstraints);
+						pushToMapArr(bIndices[i], constraint, this.localConstraints);
 					}
 					break;
 
 				case "LIMIT":
-					this._pushToMapArr(constraint.source, constraint);
+					pushToMapArr(constraint.source, constraint, this.localConstraints);
 					for (const idx of constraint.counting)
 					{
-						this._pushToMapArr(idx, constraint);
+						pushToMapArr(idx, constraint, this.localConstraints);
 					}
 					break;
 
@@ -559,15 +559,220 @@ class BiStateSolver
 
 		return true;
 	}
+}
 
-	private _pushToMapArr(key: number, cons: Constraint)
-	{
-		let list = this.localConstraints.get(key);
-		if (!list)
-		{
-			list = [];
-			this.localConstraints.set(key, list);
-		}
-		list.push(cons);
+const enum GROUP_STATE { A = 0, B = 1, NORMAL = 2 };
+interface GroupCollapsePoint {
+    // TODO
+}
+class GroupSolver {
+	public isComplete = false;
+	public solutions: string[] = [];
+    
+	private grid: GridData;
+	private limitedCells: number[];
+	private collapseStack: GroupCollapsePoint[] = [];
+    private groupGrid: number[] = [];
+    private groups: number[] = [];
+	private domains: boolean[][];
+	private allConstraints: Constraint[] = [];
+	private localConstraints = new Map<number, Constraint[]>();
+    
+	constructor(grid?: GridData) {
+		if(grid) this.useGrid(grid);
 	}
+
+	public useGrid(grid: GridData)
+	{
+		this.grid = grid;
+        this.groupGrid.length = 0;
+        this.groups.length = 0;
+		this.collapseStack.length = 0;
+		this.limitedCells = this.grid.getLimitedCells();
+		this.isComplete = false;
+		this.solutions.length = 0;
+        
+		this._createConstraints();
+        
+        this.domains = Array(grid.cellCnt).fill(0).map(() => [])
+
+		const emptyIndices: number[] = [];
+        const stateIndicesA: number[] = [];
+        const stateIndicesB: number[] = [];
+		for(let idx = 0; idx < grid.cellCnt; idx++) {
+			const state = grid.getState(idx);
+            
+			if (state === CELL_STATE.UNSET) emptyIndices.push(idx);
+            else if(state === CELL_STATE.A) stateIndicesA.push(idx);
+            else stateIndicesB.push(idx);
+		}
+
+        // keeps group id values minimal, and pregroups preset cells
+        let id = 0;
+        if(stateIndicesA.length) {
+            for(const idx of stateIndicesA) {
+                this.groupGrid[idx] = id;
+                this.domains[idx][id] = true;
+            }
+            ++id;
+        }
+
+        if(stateIndicesB.length) {
+            for(const idx of stateIndicesB) {
+                this.groupGrid[idx] = id;
+                this.domains[idx][id] = true;
+            }
+            ++id;
+        }
+        
+        const maxID = grid.cellCnt - stateIndicesA.length - stateIndicesB.length + 1;
+        for(const idx of emptyIndices) {
+            this.groupGrid[idx] = id++;
+            this.domains[idx] = Array(maxID).fill(0).map((_) => true);
+        }
+
+        // wait until all domains are populated before setting initial domain collapsing
+        for(const idx of emptyIndices) this._updateDomain(idx, false);
+	}
+
+    private _updateDomain(idx: number, isSet: boolean) {
+		const domain = this.domains[idx];
+		const constraints = this.localConstraints.get(idx)!;
+		let changed = false;
+		for (let id = 0; id < domain.length; id++)
+		{
+			if (!domain[id]) continue;
+
+			if(!isSet) {};
+
+			for (const constraint of constraints)
+			{
+				switch(constraint.type) {
+                    case "LINE": {
+                        break;}
+
+                    case "ADJACENT": {
+                        break;}
+
+                    case "LIMIT": {
+                        break;}
+
+					default: throw new Error("Invalid local constraint during domain collapse.");
+				}
+				
+				if (!domain[id]) {
+					changed = true;
+					break;
+				}
+			}
+
+			if(!isSet) {};
+		}
+
+		return changed;
+    }
+
+	private _createConstraints(): void
+	{
+		this.allConstraints.length = 0;
+		this.localConstraints.clear();
+
+		const size = this.grid.size;
+		for (let i = 0; i < size; i++) {
+			this.allConstraints.push({
+				type: "LINE",
+				isRow: false,
+				lineIdx: i,
+			}, {
+				type: "LINE",
+				isRow: true,
+				lineIdx: i,
+			})
+		}
+
+		for (let i = 1; i < size; i++)
+		{
+			this.allConstraints.push({
+				type: "ADJACENT",
+				isRow: false,
+				aIdx: i - 1,
+				bIdx: i,
+			}, {
+				type: "ADJACENT",
+				isRow: true,
+				aIdx: i - 1,
+				bIdx: i,
+			});
+		}
+
+		for (const idx of this.limitedCells)
+		{
+			const limit = this.grid.getLimitCount(idx);
+			const neighbors = this.grid.getLimitNeighbors(idx);
+			this.allConstraints.push({
+				type: "LIMIT",
+				source: idx,
+				count: limit,
+				counting: neighbors,
+			})
+		}
+
+		for (const constraint of this.allConstraints)
+		{
+			switch(constraint.type) {
+				case "LINE":
+					const indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
+					for (const idx of indices)
+					{
+						pushToMapArr(idx, constraint, this.localConstraints);
+					}
+					break;
+
+				case "ADJACENT":
+					const aIndices = this.grid.getLineIndicesAt(constraint.aIdx, constraint.isRow);
+					const bIndices = this.grid.getLineIndicesAt(constraint.bIdx, constraint.isRow);
+					for (let i = 0; i < size; i++)
+					{
+						pushToMapArr(aIndices[i], constraint, this.localConstraints);
+						pushToMapArr(bIndices[i], constraint, this.localConstraints);
+					}
+					break;
+
+				case "LIMIT":
+					pushToMapArr(constraint.source, constraint, this.localConstraints);
+					for (const idx of constraint.counting)
+					{
+						pushToMapArr(idx, constraint, this.localConstraints);
+					}
+					break;
+
+				default:
+					throw new Error("Unhandled constraint during creation.");
+			}
+		}
+	}
+
+    public step(): void {
+        this.logGroupIDs();
+    }
+
+    public logGroupIDs(): void {
+        const layers: number[][] = [[]];
+        for(let idx = 0; idx < this.grid.cellCnt; idx++) {
+            if(idx !== 0 && idx % this.grid.size === 0) layers.push([]);
+            layers.at(-1)!.push(this.groupGrid[idx]);
+        }
+        console.table(layers);
+    }
+}
+
+function pushToMapArr(key: number, cons: Constraint, localCons: Map<number, Constraint[]>)
+{
+    let list = localCons.get(key);
+    if (!list)
+    {
+        list = [];
+        localCons.set(key, list);
+    }
+    list.push(cons);
 }

@@ -13,12 +13,18 @@ ENCODES AS
 9 |0 |1 |1 
 10|11|12|14
 
+
+2 |1 |4 |5 
+6 |0 |7 |8 
+0 |0 |1 |1 
+10|1 |12|14
+
 1. for all cells of state a and b, assign them to same group ID, ex. 0 and 1
 2. for all remaining empty cells, assign each a unique ID
 3. merge applicable cells according to rules (see RULES and IMPLICATIONS)
 4. pick any two groups to merge
 5. if grid is invalid, undo merge and return to #4
-5. else return to #3
+6. else return to #3
 
 # SCENARIOS
 

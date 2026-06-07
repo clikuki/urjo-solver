@@ -204,7 +204,8 @@ function main()
 		presetStr = presets.getLast();
 
 	let gridData = GridData.fromString(presetStr),
-		solver = new BiStateSolver(gridData);
+		// solver = new BiStateSolver(gridData);
+		solver = new GroupSolver(gridData);
 	
 	const gridEl = document.body.querySelector(".grid") as HTMLElement;
 	const sizeSel = document.querySelector("#size") as HTMLSelectElement;
