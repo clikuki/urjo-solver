@@ -563,6 +563,7 @@ class BiStateSolver
 
 interface CellNode {
 	next: CellNode | null;
+	id: number;
 }
 const enum GROUP_STATE { A = 0, B = 1, NORMAL = 2 };
 
@@ -612,13 +613,21 @@ class GroupSolver {
 		this.collapseStack.length = 0;
 		this.limitedCells = this.grid.getLimitedCells();
 		this.solutions.length = 0;
-		this.nodes = Array(grid.cellCnt).fill(0).map(() => ({ next: null }));
+		this.nodes = Array(grid.cellCnt).fill(0).map(() => ({ next: null, id: -1 }));
 		this.adjMatrix = Array(grid.cellCnt).fill(0).map(() => []);
 		this.isComplete = false;
         
 		this.createConstraints();
-		this.mergeByState(CELL_STATE.A);
-		this.mergeByState(CELL_STATE.B);
+
+		let id = 0, root = this.mergeByState(CELL_STATE.A);
+		if(root) root.id = id++;
+		root = this.mergeByState(CELL_STATE.B);
+		if(root) root.id = id++;
+
+		for(let idx = 0; idx < this.grid.cellCnt; idx++) {
+			const node = this.nodes[idx];
+			if(!node.next && node.id < 0) node.id = id++
+		}
 	}
 
     public step(): void {
@@ -844,17 +853,20 @@ class GroupSolver {
 
 	}
 
-	private mergeByState(batchState: CELL_STATE): void
+	private mergeByState(batchState: CELL_STATE): CellNode | null
 	{
-		let prevCell, currCell, i = 0;
+		let root: CellNode | null = null, prevCell, currCell, i = 0;
 		for(; i < this.grid.cellCnt; i++) {
 			const state = this.grid.getState(i);
 			if(state !== batchState) continue;
 
 			currCell = this.nodes[i];
 			if(prevCell) currCell.next = prevCell;
+			else root = currCell;
 			prevCell = currCell;
 		}
+
+		return root;
 	}
 
 	private getRoot(c: CellNode | number): CellNode
@@ -868,23 +880,23 @@ class GroupSolver {
 
     private logGroupIDs(): void
 	{
-		const roots: CellNode[] = [];
+		// const roots: CellNode[] = [];
 
-		for(let idx = 0; idx < this.grid.cellCnt; idx++) {
-			roots[idx] = this.getRoot(idx);
-		}
+		// for(let idx = 0; idx < this.grid.cellCnt; idx++) {
+		// 	roots[idx] = this.getRoot(idx);
+		// }
 
-		const rootIDs = new Map<CellNode, number>();
-		let i = 0;
-		for(const root of roots) {
-			if(rootIDs.has(root)) continue;
-			rootIDs.set(root, i++);
-		}
+		// const rootIDs = new Map<CellNode, number>();
+		// let i = 0;
+		// for(const root of roots) {
+		// 	if(rootIDs.has(root)) continue;
+		// 	rootIDs.set(root, i++);
+		// }
 
         const layers: number[][] = [[]];
         for(let idx = 0; idx < this.grid.cellCnt; idx++) {
             if(idx !== 0 && idx % this.grid.size === 0) layers.push([]);
-            layers[layers.length - 1].push(rootIDs.get(roots[idx])!);
+            layers[layers.length - 1].push(this.getRoot(idx).id);
         }
         console.table(layers);
     }
