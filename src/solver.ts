@@ -1,20 +1,20 @@
 type Move = [number, CELL_STATE.A | CELL_STATE.B];
 
-type Constraint = LineConstraint | AdjacencyConstraint | LimitConstraint;
-interface LineConstraint
+type BSConstraint = BSLineConstraint | BSAdjacencyConstraint | BSLimitConstraint;
+interface BSLineConstraint
 {
 	type: "LINE";
 	isRow: boolean;
 	lineIdx: number;
 }
-interface AdjacencyConstraint
+interface BSAdjacencyConstraint
 {
 	type: "ADJACENT";
 	isRow: boolean;
 	aIdx: number;
 	bIdx: number;
 }
-interface LimitConstraint
+interface BSLimitConstraint
 {
 	type: "LIMIT";
 	source: number;
@@ -22,7 +22,7 @@ interface LimitConstraint
 	counting: number[];
 }
 
-interface BiStateCollapsePoint {
+interface BSCollapsePoint {
 	nextAttempt?: Move;
 	grid: string,
 	domain: string,
@@ -36,11 +36,11 @@ class BiStateSolver
 	public solutions: string[] = [];
 
 	private grid: GridData;
-	private collapseStack: BiStateCollapsePoint[] = [];
+	private collapseStack: BSCollapsePoint[] = [];
 	private domains: Record<CELL_STATE.A | CELL_STATE.B, boolean>[] = [];
 	private limitedCells: number[];
-	private allConstraints: Constraint[] = [];
-	private localConstraints = new Map<number, Constraint[]>();
+	private allConstraints: BSConstraint[] = [];
+	private localConstraints = new Map<number, BSConstraint[]>();
 	// private noGoods: number[][] = []; // serial list; idx_1, state_1, ..., idx_n, state_n
 
 	constructor(grid?: GridData) {
@@ -159,7 +159,7 @@ class BiStateSolver
 	// }
 
 	private _revertToValidCollapseNode(): void {
-		let collapsed: BiStateCollapsePoint | undefined;
+		let collapsed: BSCollapsePoint | undefined;
 		while(!collapsed) {
 			collapsed = this.collapseStack.at(-1);
 			if(!collapsed) {
@@ -561,7 +561,31 @@ class BiStateSolver
 	}
 }
 
+interface CellNode {
+	next: CellNode | null;
+}
 const enum GROUP_STATE { A = 0, B = 1, NORMAL = 2 };
+
+type GCConstraint = GCLineConstraint | GCAdjacencyConstraint | GCNeighborConstraint;
+interface GCLineConstraint
+{
+	type: "LINE";
+	indices: number[];
+}
+interface GCAdjacencyConstraint
+{
+	type: "ADJACENT";
+	a: number[];
+	b: number[];
+}
+interface GCNeighborConstraint
+{
+	type: "NEIGHBOR";
+	count: number;
+	source: number;
+	counting: number[];
+}
+
 interface GroupCollapsePoint {
     // TODO
 }
@@ -572,11 +596,11 @@ class GroupSolver {
 	private grid: GridData;
 	private limitedCells: number[];
 	private collapseStack: GroupCollapsePoint[] = [];
-    private groupGrid: number[] = [];
-    private groups: number[] = [];
-	private domains: boolean[][];
-	private allConstraints: Constraint[] = [];
-	private localConstraints = new Map<number, Constraint[]>();
+
+	private nodes: CellNode[];
+	private allConstraints: GCConstraint[] = [];
+	private localConstraints = new Map<number, GCConstraint[]>();
+	private adjMatrix: boolean[][] = [];
     
 	constructor(grid?: GridData) {
 		if(grid) this.useGrid(grid);
@@ -585,123 +609,50 @@ class GroupSolver {
 	public useGrid(grid: GridData)
 	{
 		this.grid = grid;
-        this.groupGrid.length = 0;
-        this.groups.length = 0;
 		this.collapseStack.length = 0;
 		this.limitedCells = this.grid.getLimitedCells();
-		this.isComplete = false;
 		this.solutions.length = 0;
+		this.nodes = Array(grid.cellCnt).fill(0).map(() => ({ next: null }));
+		this.adjMatrix = Array(grid.cellCnt).fill(0).map(() => []);
+		this.isComplete = false;
         
-		this._createConstraints();
-        
-        this.domains = Array(grid.cellCnt).fill(0).map(() => [])
-
-		const emptyIndices: number[] = [];
-        const stateIndicesA: number[] = [];
-        const stateIndicesB: number[] = [];
-		for(let idx = 0; idx < grid.cellCnt; idx++) {
-			const state = grid.getState(idx);
-            
-			if (state === CELL_STATE.UNSET) emptyIndices.push(idx);
-            else if(state === CELL_STATE.A) stateIndicesA.push(idx);
-            else stateIndicesB.push(idx);
-		}
-
-        // keeps group id values minimal, and pregroups preset cells
-        let id = 0;
-        if(stateIndicesA.length) {
-            for(const idx of stateIndicesA) {
-                this.groupGrid[idx] = id;
-                this.domains[idx][id] = true;
-            }
-            ++id;
-        }
-
-        if(stateIndicesB.length) {
-            for(const idx of stateIndicesB) {
-                this.groupGrid[idx] = id;
-                this.domains[idx][id] = true;
-            }
-            ++id;
-        }
-        
-        const maxID = grid.cellCnt - stateIndicesA.length - stateIndicesB.length + 1;
-        for(const idx of emptyIndices) {
-            this.groupGrid[idx] = id++;
-            this.domains[idx] = Array(maxID).fill(0).map((_) => true);
-        }
-
-        // wait until all domains are populated before setting initial domain collapsing
-        for(const idx of emptyIndices) this._updateDomain(idx, false);
+		this.createConstraints();
+		this.mergeByState(CELL_STATE.A);
+		this.mergeByState(CELL_STATE.B);
 	}
 
-    private _updateDomain(idx: number, isSet: boolean) {
-		const domain = this.domains[idx];
-		const constraints = this.localConstraints.get(idx)!;
-		let changed = false;
-		for (let id = 0; id < domain.length; id++)
-		{
-			if (!domain[id]) continue;
-
-			if(!isSet) {};
-
-			for (const constraint of constraints)
-			{
-				switch(constraint.type) {
-                    case "LINE": {
-                        break;}
-
-                    case "ADJACENT": {
-                        break;}
-
-                    case "LIMIT": {
-                        break;}
-
-					default: throw new Error("Invalid local constraint during domain collapse.");
-				}
-				
-				if (!domain[id]) {
-					changed = true;
-					break;
-				}
-			}
-
-			if(!isSet) {};
-		}
-
-		return changed;
+    public step(): void {
+        this.logGroupIDs();
     }
 
-	private _createConstraints(): void
+	private createConstraints(): void
 	{
 		this.allConstraints.length = 0;
-		this.localConstraints.clear();
 
 		const size = this.grid.size;
+		const rows = Array(size).fill(0).map((_, i) => Array(size).fill(0).map((_, j) => j + i * size));
+		const cols = rows.map((line, i) => line.map((_, j) => i + j * size));
+
 		for (let i = 0; i < size; i++) {
 			this.allConstraints.push({
 				type: "LINE",
-				isRow: false,
-				lineIdx: i,
+				indices: rows[i],
 			}, {
 				type: "LINE",
-				isRow: true,
-				lineIdx: i,
-			})
+				indices: cols[i],
+			});
 		}
 
 		for (let i = 1; i < size; i++)
 		{
 			this.allConstraints.push({
 				type: "ADJACENT",
-				isRow: false,
-				aIdx: i - 1,
-				bIdx: i,
+				a: rows[i - 1],
+				b: rows[i],
 			}, {
 				type: "ADJACENT",
-				isRow: true,
-				aIdx: i - 1,
-				bIdx: i,
+				a: cols[i - 1],
+				b: cols[i],
 			});
 		}
 
@@ -710,63 +661,236 @@ class GroupSolver {
 			const limit = this.grid.getLimitCount(idx);
 			const neighbors = this.grid.getLimitNeighbors(idx);
 			this.allConstraints.push({
-				type: "LIMIT",
+				type: "NEIGHBOR",
 				source: idx,
 				count: limit,
 				counting: neighbors,
 			})
 		}
 
-		for (const constraint of this.allConstraints)
-		{
+		for(const constraint of this.allConstraints) {
 			switch(constraint.type) {
 				case "LINE":
-					const indices = this.grid.getLineIndicesAt(constraint.lineIdx, constraint.isRow);
-					for (const idx of indices)
-					{
-						pushToMapArr(idx, constraint, this.localConstraints);
-					}
+					for(const idx of constraint.indices) pushToMapArr(idx, constraint, this.localConstraints);
 					break;
 
 				case "ADJACENT":
-					const aIndices = this.grid.getLineIndicesAt(constraint.aIdx, constraint.isRow);
-					const bIndices = this.grid.getLineIndicesAt(constraint.bIdx, constraint.isRow);
-					for (let i = 0; i < size; i++)
-					{
-						pushToMapArr(aIndices[i], constraint, this.localConstraints);
-						pushToMapArr(bIndices[i], constraint, this.localConstraints);
-					}
+					for(const idx of constraint.a) pushToMapArr(idx, constraint, this.localConstraints);
+					for(const idx of constraint.b) pushToMapArr(idx, constraint, this.localConstraints);
 					break;
 
-				case "LIMIT":
+				case "NEIGHBOR":
 					pushToMapArr(constraint.source, constraint, this.localConstraints);
-					for (const idx of constraint.counting)
-					{
-						pushToMapArr(idx, constraint, this.localConstraints);
-					}
+					for(const idx of constraint.counting) pushToMapArr(idx, constraint, this.localConstraints);
 					break;
-
-				default:
-					throw new Error("Unhandled constraint during creation.");
 			}
 		}
 	}
 
-    public step(): void {
-        this.logGroupIDs();
-    }
+	private applyConstraints(): boolean
+	{
+		const updated: boolean[] = [];
+		let hasChanged = false;
 
-    public logGroupIDs(): void {
+		for(const constraint of this.allConstraints) {
+			const res = this.applyConstraint(constraint);
+			if(res) {
+				hasChanged = true;
+				for(const idx of res) {
+					updated[idx] = true;
+				}
+			}
+			else return false;
+		}
+		
+		while(hasChanged) {
+			hasChanged = false;
+
+			for(let idx = 0; idx < updated.length; idx++) {
+				if(!updated[idx]) continue;
+				
+				for(const constraint of this.localConstraints.get(idx)!) {
+					const res = this.applyConstraint(constraint);
+					if(res) {
+						hasChanged = true;
+						for(const idx of res) {
+							updated[idx] = true;
+						}
+					}
+					else return false;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	private applyConstraint(con: GCConstraint): false | number[]
+	{
+		const size = this.grid.size, updated: number[] = [];
+		switch(con.type) {
+			case "LINE":{
+				const counts = new Map<CellNode, number>();
+				const maxCnt = size / 2;
+				const roots = con.indices.map(c => this.getRoot(c));
+				for(let i = 0; i < size; i++) {
+					const root = roots[i];
+					const count = (counts.get(root) ?? 0) + 1;
+
+					if(count > maxCnt) return false;
+					else if(count === maxCnt) {
+						const combine: number[] = [];
+						for(let j = 0; j < size; j++) {
+							if(roots[j] === root) continue;
+							const idx = con.indices[j];
+							combine.push(idx);
+							updated.push(idx);
+						}
+						
+						this.mergeGroups(combine);
+					}
+
+					counts.set(root, count);
+				}
+
+				break;}
+
+			case "ADJACENT":{
+				const rootsA = con.a.map((i) => (this.getRoot(i))),
+					  rootsB = con.b.map((i) => (this.getRoot(i))),
+					  uniqueRootsA = new Set<CellNode>(),
+					  uniqueRootsB = new Set<CellNode>();
+
+				let matchCount = 0;
+				for(let i = 0, a: CellNode, b: CellNode; i < size; i++)
+				{
+					a = rootsA[i];
+					b = rootsB[i];
+					if(a === b) matchCount++;
+					uniqueRootsA.add(a);
+					uniqueRootsB.add(b);
+				}
+
+				if(matchCount >= size - 1) return false; // n-1 match case
+				else if(matchCount === size - 2)
+				{
+					// opposite non-match case
+					for(let i = 0; i < size; i++)
+					{
+						if(rootsA[i] === rootsB[i]) continue;
+						this.adjMatrix[con.a[i]][con.b[i]] = true;
+						this.adjMatrix[con.b[i]][con.a[i]] = true;
+					}
+				}
+				else if(
+					matchCount === 0 &&
+					uniqueRootsA.size === 2 &&
+					uniqueRootsB.size === 2
+				)
+				{
+					// same pattern different group case
+					const [comparisonRoot] = rootsA.values();
+					let aMatched = false, bMatched = false;
+					for(let i = 0; i < size; i++)
+					{
+						if(!aMatched && rootsA[i] === comparisonRoot) {
+							aMatched = true;
+							this.mergeGroups([con.a[i], con.b[i]]);
+						}
+						else if(!bMatched && rootsA[i] !== comparisonRoot) {
+							bMatched = true;
+							this.mergeGroups([con.a[i], con.b[i]]);
+						}
+
+						if(aMatched && bMatched) break;
+					}
+				}
+
+				break;}
+
+			case "NEIGHBOR":{
+
+				break;}
+
+			default: throw new Error("Invalid local constraint during constraint application.");
+		}
+
+		return updated;
+	}
+
+	// private getLineMaskAndCount(line: number[]): Map<CellNode, { mask: number, count: number }>
+	// {
+	// 	const nodeData = new Map<CellNode, { mask: number, count: number }>(),
+	// 		size = this.grid.size;
+	// 	for(let i = 0; i < size; i++) {
+	// 		const root = this.getRoot(line[i]);
+	// 		const data = nodeData.get(root);
+	// 		if(data) {
+	// 			data.mask |= 1 << i;
+	// 			data.count++;
+	// 		}
+	// 		else {
+	// 			nodeData.set(root, {
+	// 				mask: 1 << i,
+	// 				count: 1,
+	// 			})
+	// 		}
+	// 	}
+	// 	return nodeData;
+	// }
+
+	private mergeGroups(indices: number[]): void
+	{
+
+	}
+
+	private mergeByState(batchState: CELL_STATE): void
+	{
+		let prevCell, currCell, i = 0;
+		for(; i < this.grid.cellCnt; i++) {
+			const state = this.grid.getState(i);
+			if(state !== batchState) continue;
+
+			currCell = this.nodes[i];
+			if(prevCell) currCell.next = prevCell;
+			prevCell = currCell;
+		}
+	}
+
+	private getRoot(c: CellNode | number): CellNode
+	{
+		if(typeof c === "number") c = this.nodes[c];
+		while(c.next) {
+			c = c.next;
+		}
+		return c;
+	}
+
+    private logGroupIDs(): void
+	{
+		const roots: CellNode[] = [];
+
+		for(let idx = 0; idx < this.grid.cellCnt; idx++) {
+			roots[idx] = this.getRoot(idx);
+		}
+
+		const rootIDs = new Map<CellNode, number>();
+		let i = 0;
+		for(const root of roots) {
+			if(rootIDs.has(root)) continue;
+			rootIDs.set(root, i++);
+		}
+
         const layers: number[][] = [[]];
         for(let idx = 0; idx < this.grid.cellCnt; idx++) {
             if(idx !== 0 && idx % this.grid.size === 0) layers.push([]);
-            layers.at(-1)!.push(this.groupGrid[idx]);
+            layers[layers.length - 1].push(rootIDs.get(roots[idx])!);
         }
         console.table(layers);
     }
 }
 
-function pushToMapArr(key: number, cons: Constraint, localCons: Map<number, Constraint[]>)
+function pushToMapArr<T>(key: number, cons: T, localCons: Map<number, T[]>)
 {
     let list = localCons.get(key);
     if (!list)

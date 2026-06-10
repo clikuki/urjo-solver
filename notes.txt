@@ -125,3 +125,8 @@ x |1 |1 |1             x |3 |2 |2               x |6 |7 |8
 - if two lines match in group ID patterns except for two cells each, merge the line-adjacent non-matching cells to opposing groups
 - if there are 8-X number of cells with the same group around a limit X, merge source and remaining x-count group
 - cell groups immediately around a limit must, in part, add up to said limit (see NEIGHBOR LIMIT COMBINABILITY)
+
+
+
+# UNSURE IDEAS
+- if cells A and B cannot be in the same group as C, then are cells A and B in the same group / the same state?
