@@ -563,7 +563,7 @@ class BiStateSolver
 
 interface CellNode {
 	next: CellNode | null;
-	id: number;
+	index: number;
 }
 const enum GROUP_STATE { A = 0, B = 1, NORMAL = 2 };
 
@@ -601,7 +601,7 @@ class GroupSolver {
 	private nodes: CellNode[];
 	private allConstraints: GCConstraint[] = [];
 	private localConstraints = new Map<number, GCConstraint[]>();
-	private adjMatrix: boolean[][] = [];
+	private nonMatch: boolean[][] = [];
     
 	constructor(grid?: GridData) {
 		if(grid) this.useGrid(grid);
@@ -613,21 +613,26 @@ class GroupSolver {
 		this.collapseStack.length = 0;
 		this.limitedCells = this.grid.getLimitedCells();
 		this.solutions.length = 0;
-		this.nodes = Array(grid.cellCnt).fill(0).map(() => ({ next: null, id: -1 }));
-		this.adjMatrix = Array(grid.cellCnt).fill(0).map(() => []);
+		// this.nodes = Array(grid.cellCnt).fill(0).map((_, i) => ({ next: null, id: -1, index: i }));
+		this.nodes = Array(grid.cellCnt).fill(0).map((_, i) => ({ next: null, index: i }));
+		this.nonMatch = Array(grid.cellCnt).fill(0).map(() => []);
 		this.isComplete = false;
         
 		this.createConstraints();
+		this.mergeByState(CELL_STATE.A)
+		this.mergeByState(CELL_STATE.B)
 
-		let id = 0, root = this.mergeByState(CELL_STATE.A);
-		if(root) root.id = id++;
-		root = this.mergeByState(CELL_STATE.B);
-		if(root) root.id = id++;
+		// let id = 0;
+		// const idxA = this.mergeByState(CELL_STATE.A);
+		// if(idxA >= 0) this.nodes[idxA].id = id++;
+		// const idxB = this.mergeByState(CELL_STATE.B);
+		// if(idxB >= 0) this.nodes[idxB].id = id++;
+		// if(id === 2) this.addAsUnmatch(idxA, idxB);
 
-		for(let idx = 0; idx < this.grid.cellCnt; idx++) {
-			const node = this.nodes[idx];
-			if(!node.next && node.id < 0) node.id = id++
-		}
+		// for(let idx = 0; idx < this.grid.cellCnt; idx++) {
+		// 	const node = this.nodes[idx];
+		// 	if(!node.next && node.id < 0) node.id = id++
+		// }
 	}
 
     public step(): void {
@@ -699,67 +704,105 @@ class GroupSolver {
 	private applyConstraints(): boolean
 	{
 		const updated: boolean[] = [];
-		let hasChanged = false;
-
 		for(const constraint of this.allConstraints) {
-			const res = this.applyConstraint(constraint);
-			if(res) {
-				hasChanged = true;
-				for(const idx of res) {
-					updated[idx] = true;
-				}
-			}
-			else return false;
+			const isValid = this.applyConstraint(constraint, updated);
+			if(!isValid) return false;
 		}
 		
-		while(hasChanged) {
-			hasChanged = false;
+		let iters = 1000;
+		while(updated[-1] && iters-- > 0) {
+			updated[-1] = false;
 
 			for(let idx = 0; idx < updated.length; idx++) {
 				if(!updated[idx]) continue;
+				updated[idx] = false;
 				
 				for(const constraint of this.localConstraints.get(idx)!) {
-					const res = this.applyConstraint(constraint);
-					if(res) {
-						hasChanged = true;
-						for(const idx of res) {
-							updated[idx] = true;
-						}
-					}
-					else return false;
+					const isValid = this.applyConstraint(constraint, updated);
+					if(!isValid) return false;
 				}
 			}
 		}
+
+		if(iters <= 0) throw new Error("Could not constrain in reasonable time.")
+
+		this.differingGroupMerge();
 
 		return true;
 	}
 
-	private applyConstraint(con: GCConstraint): false | number[]
+	private differingGroupMerge(): void {
+		const groupDiffs = new Map<CellNode, CellNode[]>();
+		let attemptMerge = true;
+		while(attemptMerge)
+		{
+			attemptMerge = false;
+			for(let i = 0, j; i < this.grid.cellCnt; i++)
+			{
+				for(j = 0; j < this.grid.cellCnt; j++)
+				{
+					if(!this.nonMatch[i][j]) continue;
+					const a = this.getRoot(i),
+						b = this.getRoot(j),
+						entry = groupDiffs.get(a);
+
+					if(entry) {
+						entry.push(b);
+						this.nonMatch[i][j] = false;
+						this.nonMatch[j][i] = false;
+					}
+					else groupDiffs.set(a, [b]);
+				}	
+			}
+			
+			for(const [, roots] of groupDiffs)
+			{
+				if(roots.length < 2) continue;
+				this.mergeGroups(roots.map(r => r.index));
+				attemptMerge = true;
+			}
+			
+			groupDiffs.clear();
+		}
+	}
+
+	private applyConstraint(con: GCConstraint, updated: boolean[]): boolean
 	{
-		const size = this.grid.size, updated: number[] = [];
+		const size = this.grid.size;
 		switch(con.type) {
 			case "LINE":{
 				const counts = new Map<CellNode, number>();
 				const maxCnt = size / 2;
 				const roots = con.indices.map(c => this.getRoot(c));
+
+				const uniqueRoots = new Set(roots);
+				if(uniqueRoots.size === 2) break;
+
 				for(let i = 0; i < size; i++) {
 					const root = roots[i];
 					const count = (counts.get(root) ?? 0) + 1;
-
 					if(count > maxCnt) return false;
-					else if(count === maxCnt) {
+					uniqueRoots.add(root);
+					counts.set(root, count);
+				}
+
+				for(let i = 0; i < size; i++) {
+					const root = roots[i];
+					const count = counts.get(root)!;
+
+					if(count === maxCnt) {
 						const combine: number[] = [];
 						for(let j = 0; j < size; j++) {
 							if(roots[j] === root) continue;
 							const idx = con.indices[j];
 							combine.push(idx);
-							updated.push(idx);
+							updated[idx] = true;
 						}
 						
 						this.mergeGroups(combine);
+						this.addAsUnmatch(combine[0], con.indices[i]);
+						updated[-1] = true;
 					}
-
-					counts.set(root, count);
 				}
 
 				break;}
@@ -784,17 +827,22 @@ class GroupSolver {
 				else if(matchCount === size - 2)
 				{
 					// opposite non-match case
+					let changed = false;
 					for(let i = 0; i < size; i++)
 					{
-						if(rootsA[i] === rootsB[i]) continue;
-						this.adjMatrix[con.a[i]][con.b[i]] = true;
-						this.adjMatrix[con.b[i]][con.a[i]] = true;
+						const a = con.a[i], b = con.b[i];
+						if(rootsA[i] === rootsB[i] || this.nonMatch[a][b]) continue;
+						this.addAsUnmatch(a, b);
+						changed = true;
 					}
+					
+					if(changed) updated[-1] = true;
 				}
 				else if(
 					matchCount === 0 &&
 					uniqueRootsA.size === 2 &&
-					uniqueRootsB.size === 2
+					uniqueRootsB.size &&
+					!Array.from(uniqueRootsA).every(r => uniqueRootsB.has(r)) // ignore if already set
 				)
 				{
 					// same pattern different group case
@@ -813,6 +861,8 @@ class GroupSolver {
 
 						if(aMatched && bMatched) break;
 					}
+					
+					updated[-1] = true;
 				}
 
 				break;}
@@ -824,7 +874,7 @@ class GroupSolver {
 			default: throw new Error("Invalid local constraint during constraint application.");
 		}
 
-		return updated;
+		return true;
 	}
 
 	// private getLineMaskAndCount(line: number[]): Map<CellNode, { mask: number, count: number }>
@@ -850,23 +900,35 @@ class GroupSolver {
 
 	private mergeGroups(indices: number[]): void
 	{
+		const roots = new Set<CellNode>;
+		let primaryRoot: CellNode | null = null, idx, root;
+		for(idx of indices) {
+			root = this.getRoot(idx);
+			roots.add(root);
+			if(!primaryRoot || primaryRoot.index > root.index) primaryRoot = root;
+		}
 
+		if(roots.size < 2) return;
+		for(root of roots) {
+			if(root === primaryRoot) continue;
+			root.next = primaryRoot;
+		}
 	}
 
-	private mergeByState(batchState: CELL_STATE): CellNode | null
+	private mergeByState(batchState: CELL_STATE): number
 	{
-		let root: CellNode | null = null, prevCell, currCell, i = 0;
+		let rootIdx = -1, prevCell, currCell, i = 0;
 		for(; i < this.grid.cellCnt; i++) {
 			const state = this.grid.getState(i);
 			if(state !== batchState) continue;
 
 			currCell = this.nodes[i];
 			if(prevCell) currCell.next = prevCell;
-			else root = currCell;
+			else rootIdx = i;
 			prevCell = currCell;
 		}
 
-		return root;
+		return rootIdx;
 	}
 
 	private getRoot(c: CellNode | number): CellNode
@@ -878,25 +940,19 @@ class GroupSolver {
 		return c;
 	}
 
+	private addAsUnmatch(a: number, b: number) {
+		a = this.getRoot(a).index;
+		b = this.getRoot(b).index;
+		this.nonMatch[a][b] = true;
+		this.nonMatch[b][a] = true;
+	}
+
     private logGroupIDs(): void
 	{
-		// const roots: CellNode[] = [];
-
-		// for(let idx = 0; idx < this.grid.cellCnt; idx++) {
-		// 	roots[idx] = this.getRoot(idx);
-		// }
-
-		// const rootIDs = new Map<CellNode, number>();
-		// let i = 0;
-		// for(const root of roots) {
-		// 	if(rootIDs.has(root)) continue;
-		// 	rootIDs.set(root, i++);
-		// }
-
         const layers: number[][] = [[]];
         for(let idx = 0; idx < this.grid.cellCnt; idx++) {
             if(idx !== 0 && idx % this.grid.size === 0) layers.push([]);
-            layers[layers.length - 1].push(this.getRoot(idx).id);
+            layers[layers.length - 1].push(this.getRoot(idx).index);
         }
         console.table(layers);
     }

@@ -130,3 +130,4 @@ x |1 |1 |1             x |3 |2 |2               x |6 |7 |8
 
 # UNSURE IDEAS
 - if cells A and B cannot be in the same group as C, then are cells A and B in the same group / the same state?
+- store inequivelance constraint by index, then compare roots to see if same
