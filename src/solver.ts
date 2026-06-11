@@ -636,7 +636,7 @@ class GroupSolver {
 	}
 
     public step(): void {
-        this.logGroupIDs();
+        this.applyConstraints();
     }
 
 	private createConstraints(): void
@@ -717,8 +717,10 @@ class GroupSolver {
 				if(!updated[idx]) continue;
 				updated[idx] = false;
 				
-				for(const constraint of this.localConstraints.get(idx)!) {
-					const isValid = this.applyConstraint(constraint, updated);
+				for(const con of this.localConstraints.get(idx)!) {
+					// if(con.type === "ADJACENT" && con.a[0] === 2 && con.b[0] === 3) debugger;
+					const isValid = this.applyConstraint(con, updated);
+					if(this.getRoot(2) === this.getRoot(3)) debugger;
 					if(!isValid) return false;
 				}
 			}
@@ -726,12 +728,12 @@ class GroupSolver {
 
 		if(iters <= 0) throw new Error("Could not constrain in reasonable time.")
 
-		this.differingGroupMerge();
+		if(!this.differingGroupMerge()) return false;
 
 		return true;
 	}
 
-	private differingGroupMerge(): void {
+	private differingGroupMerge(): boolean {
 		const groupDiffs = new Map<CellNode, CellNode[]>();
 		let attemptMerge = true;
 		while(attemptMerge)
@@ -746,7 +748,10 @@ class GroupSolver {
 						b = this.getRoot(j),
 						entry = groupDiffs.get(a);
 
-					if(entry) {
+					if(a === b) return false;
+
+					if(entry)
+					{
 						entry.push(b);
 						this.nonMatch[i][j] = false;
 						this.nonMatch[j][i] = false;
@@ -764,6 +769,8 @@ class GroupSolver {
 			
 			groupDiffs.clear();
 		}
+
+		return true;
 	}
 
 	private applyConstraint(con: GCConstraint, updated: boolean[]): boolean
@@ -841,7 +848,7 @@ class GroupSolver {
 				else if(
 					matchCount === 0 &&
 					uniqueRootsA.size === 2 &&
-					uniqueRootsB.size &&
+					uniqueRootsB.size === 2 &&
 					!Array.from(uniqueRootsA).every(r => uniqueRootsB.has(r)) // ignore if already set
 				)
 				{
@@ -868,6 +875,35 @@ class GroupSolver {
 				break;}
 
 			case "NEIGHBOR":{
+				const limit = con.count;
+				const sourceRoot = this.getRoot(con.source);
+				const roots = con.counting.map(i => this.getRoot(i));
+				const uniqueRoots = new Set(roots);
+				const hasRoot = uniqueRoots.has(sourceRoot);
+				const max = con.counting.length;
+
+				// debugger;
+
+				if(!limit)
+				{
+					if(hasRoot) return false;
+					if(uniqueRoots.size === 1) break;
+					this.mergeGroups(con.counting);
+				}
+				else if(limit === max)
+				{
+					if(hasRoot && uniqueRoots.size === 1) break;
+					this.mergeGroups(con.counting.concat(con.source));
+				}
+
+				if(!limit || limit === max)
+				{
+					updated[-1] = true;
+					for(const idx of con.counting)
+					{
+						updated[idx] = true;
+					}
+				}
 
 				break;}
 
