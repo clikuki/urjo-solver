@@ -704,8 +704,9 @@ class GroupSolver {
 	private applyConstraints(): boolean
 	{
 		const updated: boolean[] = [];
-		for(const constraint of this.allConstraints) {
-			const isValid = this.applyConstraint(constraint, updated);
+		for(const con of this.allConstraints) {
+			if(con.type === "NEIGHBOR") debugger;
+			const isValid = this.applyConstraint(con, updated);
 			if(!isValid) return false;
 		}
 		
@@ -718,9 +719,9 @@ class GroupSolver {
 				updated[idx] = false;
 				
 				for(const con of this.localConstraints.get(idx)!) {
-					// if(con.type === "ADJACENT" && con.a[0] === 2 && con.b[0] === 3) debugger;
+					if(con.type === "NEIGHBOR") debugger;
 					const isValid = this.applyConstraint(con, updated);
-					if(this.getRoot(2) === this.getRoot(3)) debugger;
+					// if(!isValid) debugger;
 					if(!isValid) return false;
 				}
 			}
@@ -783,7 +784,7 @@ class GroupSolver {
 				const roots = con.indices.map(c => this.getRoot(c));
 
 				const uniqueRoots = new Set(roots);
-				if(uniqueRoots.size === 2) break;
+				if(uniqueRoots.size === 2) return true;;
 
 				for(let i = 0; i < size; i++) {
 					const root = roots[i];
@@ -866,7 +867,7 @@ class GroupSolver {
 							this.mergeGroups([con.a[i], con.b[i]]);
 						}
 
-						if(aMatched && bMatched) break;
+						if(aMatched && bMatched) return true;;
 					}
 					
 					updated[-1] = true;
@@ -875,24 +876,25 @@ class GroupSolver {
 				break;}
 
 			case "NEIGHBOR":{
+				const max = con.counting.length;
 				const limit = con.count;
+				const invLimit = max - limit;
 				const sourceRoot = this.getRoot(con.source);
 				const roots = con.counting.map(i => this.getRoot(i));
 				const uniqueRoots = new Set(roots);
 				const hasRoot = uniqueRoots.has(sourceRoot);
-				const max = con.counting.length;
 
-				// debugger;
-
+				// 0/max cases
 				if(!limit)
 				{
 					if(hasRoot) return false;
-					if(uniqueRoots.size === 1) break;
+					if(uniqueRoots.size === 1) return true;
 					this.mergeGroups(con.counting);
+					this.addAsUnmatch(roots[0].index, con.source);
 				}
 				else if(limit === max)
 				{
-					if(hasRoot && uniqueRoots.size === 1) break;
+					if(hasRoot && uniqueRoots.size === 1) return true;
 					this.mergeGroups(con.counting.concat(con.source));
 				}
 
@@ -903,14 +905,117 @@ class GroupSolver {
 					{
 						updated[idx] = true;
 					}
+
+					return true;
 				}
 
-				break;}
+				const groupPopulationMap = new Map<CellNode, number>();
+				for(const root of roots)
+				{
+					const popul = (groupPopulationMap.get(root) ?? 0) + 1;
+					groupPopulationMap.set(root, popul);
+				}
+
+				const sourcePopulation = groupPopulationMap.get(sourceRoot) ?? 0;
+				if(sourcePopulation) {
+					if(sourcePopulation === limit) return true;
+					if(sourcePopulation > limit) return false;
+				}
+				
+				// Quick check if all groups are too big to fit
+				let noFittingGroups = true;
+				for(const [root, popul] of groupPopulationMap)
+				{
+					if(popul <= limit) noFittingGroups = false;
+					
+					if(uniqueRoots.size !== 2 && popul === invLimit)
+					{
+						const batch = [con.source];
+
+						updated[-1] = true;
+						for(const r of roots)
+						{
+							if(r === root) continue;
+							batch.push(r.index);
+							updated[r.index] = true;
+						}
+
+						this.mergeGroups(batch);
+						this.addAsUnmatch(root.index, con.source);
+						
+						return true;
+					}
+				}
+				
+				if(noFittingGroups) return false;
+
+				const populations = Array.from(groupPopulationMap.values());
+				for(let i = 1; i <= limit; i++)
+				{
+					const res = this.checkCombinationsEqual(populations, limit - sourcePopulation, i);
+					if(!res) continue;
+
+					if(res !== true)
+					{
+						const sourceBatch = res.map(i => roots[i].index);
+						const remainingBatch = Array.from(uniqueRoots)
+							.filter(r => !sourceBatch.includes(r.index))
+							.map(r => r.index);
+						
+						updated[-1] = true;
+						for(const idx of con.counting) {
+							updated[idx] = true;
+						}
+
+						this.mergeGroups(sourceBatch.concat(con.source));
+						this.mergeGroups(remainingBatch);
+						this.addAsUnmatch(sourceBatch[0], remainingBatch[0]);
+					}
+					
+					return true;
+				}
+
+				return false;}
 
 			default: throw new Error("Invalid local constraint during constraint application.");
 		}
 
 		return true;
+	}
+
+	private checkCombinationsEqual(
+		data: number[],
+		value: number,
+		length: number,
+		combo: number[] = [],
+		startAt = 0,
+	): boolean | number[] {
+		if(length <= 0) {
+			let sum = 0, i = 0;
+			for(; i < combo.length; i++) {
+				sum += data[combo[i]];
+				if(sum > value) return false;
+			}
+			if(sum === value) return combo;
+			return false;
+		}
+
+		let retVal: boolean | number[] = false;
+		for(let i = startAt; i < data.length; i++)
+		{
+			const res = this.checkCombinationsEqual(
+				data,
+				value,
+				length - 1,
+				combo.concat(i),
+				i + 1,
+			);
+
+			if(res === true || (res && retVal)) return true;
+			if(res) retVal = res;
+		}
+		
+		return retVal;
 	}
 
 	// private getLineMaskAndCount(line: number[]): Map<CellNode, { mask: number, count: number }>
