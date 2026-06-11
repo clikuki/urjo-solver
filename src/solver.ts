@@ -622,12 +622,9 @@ class GroupSolver {
 		this.mergeByState(CELL_STATE.A)
 		this.mergeByState(CELL_STATE.B)
 
-		// let id = 0;
-		// const idxA = this.mergeByState(CELL_STATE.A);
-		// if(idxA >= 0) this.nodes[idxA].id = id++;
-		// const idxB = this.mergeByState(CELL_STATE.B);
-		// if(idxB >= 0) this.nodes[idxB].id = id++;
-		// if(id === 2) this.addAsUnmatch(idxA, idxB);
+		const idxA = this.mergeByState(CELL_STATE.A);
+		const idxB = this.mergeByState(CELL_STATE.B);
+		if(idxA >= 0 && idxB >= 0) this.addAsUnmatch(idxA, idxB);
 
 		// for(let idx = 0; idx < this.grid.cellCnt; idx++) {
 		// 	const node = this.nodes[idx];
@@ -760,7 +757,7 @@ class GroupSolver {
 					else groupDiffs.set(a, [b]);
 				}	
 			}
-			
+
 			for(const [, roots] of groupDiffs)
 			{
 				if(roots.length < 2) continue;
