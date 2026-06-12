@@ -918,34 +918,35 @@ class GroupSolver {
 					if(sourcePopulation === limit) return true;
 					if(sourcePopulation > limit) return false;
 				}
-				
-				// Quick check if all groups are too big to fit
-				let noFittingGroups = true;
-				for(const [root, popul] of groupPopulationMap)
+
+				// 4 lim escape cases
+				if(limit === invLimit)
 				{
-					if(popul <= limit) noFittingGroups = false;
-					
-					if(uniqueRoots.size !== 2 && popul === invLimit)
+					if(uniqueRoots.size < 2) return false;
+					if(uniqueRoots.size === 2)
 					{
-						const batch = [con.source];
-
-						updated[-1] = true;
-						for(const r of roots)
+						for(const [, popul] of groupPopulationMap)
 						{
-							if(r === root) continue;
-							batch.push(r.index);
-							updated[r.index] = true;
+							if(popul !== limit) return false;
 						}
-
-						this.mergeGroups(batch);
-						this.addAsUnmatch(root.index, con.source);
-						
-						return true;
+						return true
 					}
 				}
 				
-				if(noFittingGroups) return false;
+				// General check if all groups are too big to fit
+				let groupsAreTooBig = true;
+				for(const [, popul] of groupPopulationMap)
+				{
+					if(popul <= limit) {
+						groupsAreTooBig = false;
+						break;
+					}
+				}
+				
+				if(groupsAreTooBig) return false;
 
+				// check if combination of groups exists that fits limit
+				// if only one such exists, then merge
 				const populations = Array.from(groupPopulationMap.values());
 				for(let i = 1; i <= limit; i++)
 				{
@@ -954,7 +955,8 @@ class GroupSolver {
 
 					if(res !== true)
 					{
-						const sourceBatch = res.map(i => roots[i].index);
+						const orderedRoots = Array.from(groupPopulationMap.keys());
+						const sourceBatch = res.map(i => orderedRoots[i].index);
 						const remainingBatch = Array.from(uniqueRoots)
 							.filter(r => !sourceBatch.includes(r.index))
 							.map(r => r.index);
@@ -964,7 +966,8 @@ class GroupSolver {
 							updated[idx] = true;
 						}
 
-						this.mergeGroups(sourceBatch.concat(con.source));
+						if(invLimit !== limit) sourceBatch.push(con.source);
+						this.mergeGroups(sourceBatch);
 						this.mergeGroups(remainingBatch);
 						this.addAsUnmatch(sourceBatch[0], remainingBatch[0]);
 					}
