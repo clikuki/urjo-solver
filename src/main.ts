@@ -29,8 +29,8 @@ const presets = (() => {
 		const initPresets = localStorage.getItem(storeKey) ?? "[]";
 		const initUsed = localStorage.getItem(lastUsedKey) ?? "4";
 
-		console.log("LOADED PRESETS FROM STORAGE:", initPresets);
-		console.log("LOADED LAST PRESET FROM STORAGE:", initUsed);
+		console.info("LOADED PRESETS FROM STORAGE:", initPresets);
+		console.info("LOADED LAST PRESET FROM STORAGE:", initUsed);
 
 		presetMap = new Map(JSON.parse(initPresets) as [string, string][]);
 		lastUsed = initUsed;
