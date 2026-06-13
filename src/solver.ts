@@ -587,8 +587,11 @@ interface GCNeighborConstraint
 	counting: number[];
 }
 
-interface GroupCollapsePoint {
-    // TODO
+interface GroupSaveStates {
+    nonMatch: number[];
+	nodeGroups: number[];
+	possibleMerges: [number, number][];
+	lastMerge: [number, number];
 }
 class GroupSolver {
 	public isComplete = false;
@@ -596,24 +599,24 @@ class GroupSolver {
     
 	private grid: GridData;
 	private limitedCells: number[];
-	private collapseStack: GroupCollapsePoint[] = [];
+	private saveStates: GroupSaveStates[] = [];
 
 	private nodes: CellNode[];
 	private allConstraints: GCConstraint[] = [];
 	private localConstraints = new Map<number, GCConstraint[]>();
 	private nonMatch: boolean[][] = [];
     
-	constructor(grid?: GridData) {
+	constructor(grid?: GridData)
+	{
 		if(grid) this.useGrid(grid);
 	}
 
 	public useGrid(grid: GridData)
 	{
 		this.grid = grid;
-		this.collapseStack.length = 0;
+		this.saveStates.length = 0;
 		this.limitedCells = this.grid.getLimitedCells();
 		this.solutions.length = 0;
-		// this.nodes = Array(grid.cellCnt).fill(0).map((_, i) => ({ next: null, id: -1, index: i }));
 		this.nodes = Array(grid.cellCnt).fill(0).map((_, i) => ({ next: null, index: i }));
 		this.nonMatch = Array(grid.cellCnt).fill(0).map(() => []);
 		this.isComplete = false;
@@ -624,17 +627,249 @@ class GroupSolver {
 
 		const idxA = this.mergeByState(CELL_STATE.A);
 		const idxB = this.mergeByState(CELL_STATE.B);
-		if(idxA >= 0 && idxB >= 0) this.addAsUnmatch(idxA, idxB);
-
-		// for(let idx = 0; idx < this.grid.cellCnt; idx++) {
-		// 	const node = this.nodes[idx];
-		// 	if(!node.next && node.id < 0) node.id = id++
-		// }
+		if(idxA >= 0 && idxB >= 0) this.addAsNonMatching(idxA, idxB);
 	}
 
-    public step(): void {
-        this.applyConstraints();
+    public step(): void
+	{
+		if(this.isComplete) return;
+
+        const res = this.applyConstraints();
+		console.log(res);
+
+		if(res === "INVALID")
+		{
+			this.revertToSafeState();
+		}
+		else if(res === "NOCHANGE")
+		{
+			const possibleMerges = this.getPossibleMerges();
+			const firstMerge = possibleMerges.pop();
+
+			if(firstMerge) 
+			{
+				this.mergeGroups(firstMerge);
+
+				this.saveStates.push({
+					nonMatch: this.buildCompactNonMatches(),
+					nodeGroups: this.nodes.map(n => n.next?.index ?? -1),
+					possibleMerges,
+					lastMerge: firstMerge,
+				})
+			}
+			else
+			{
+				if(this.inValidFinalState())
+				{
+					this.isComplete = true;
+					this.setGridFromGroups();
+					this.solutions.push(this.grid.toString());
+				}
+				else
+				{
+					this.revertToSafeState();
+				}
+			}
+		}
     }
+
+	private inValidFinalState(): boolean
+	{
+		const uniqueRoots = new Set<CellNode>();
+		for(let i = 0; i < this.grid.cellCnt; i++) {
+			uniqueRoots.add(this.getRoot(i));
+			if(uniqueRoots.size > 2) return false;
+		}
+		if(uniqueRoots.size < 2) return false; // unlikely but sure
+
+		const size = this.grid.size;
+		for(const con of this.allConstraints)
+		{
+			switch(con.type) {
+				case "LINE":{
+					const counts = new Map<CellNode, number>();
+					const maxCnt = size / 2;
+					const roots = con.indices.map(c => this.getRoot(c));
+
+					const uniqueRoots = new Set(roots);
+					if(uniqueRoots.size === 2) break;
+
+					for(let i = 0; i < size; i++) {
+						const root = roots[i];
+						const count = (counts.get(root) ?? 0) + 1;
+						if(count > maxCnt) return false;
+						uniqueRoots.add(root);
+						counts.set(root, count);
+					}
+
+					for(let i = 0; i < size; i++) {
+						const count = counts.get(roots[i]);
+						if(count !== maxCnt) return false;
+					}
+
+					break;}
+
+				case "ADJACENT":{
+					const rootsA = con.a.map((i) => (this.getRoot(i))),
+						rootsB = con.b.map((i) => (this.getRoot(i))),
+						uniqueRootsA = new Set<CellNode>(),
+						uniqueRootsB = new Set<CellNode>();
+
+					let matchCount = 0;
+					for(let i = 0, a: CellNode, b: CellNode; i < size; i++)
+					{
+						a = rootsA[i];
+						b = rootsB[i];
+						if(a === b) matchCount++;
+						if(matchCount >= size - 1) return false;
+						uniqueRootsA.add(a);
+						uniqueRootsB.add(b);
+					}
+
+					break;}
+
+				case "NEIGHBOR":{
+					const max = con.counting.length;
+					const limit = con.count;
+					const sourceRoot = this.getRoot(con.source);
+					const roots = con.counting.map(i => this.getRoot(i));
+					const uniqueRoots = new Set(roots);
+					const hasRoot = uniqueRoots.has(sourceRoot);
+
+					// 0/max escape cases
+					if(!limit)
+					{
+						if(hasRoot) return false;
+						if(uniqueRoots.size === 1) break;
+					}
+					else if(limit === max)
+					{
+						if(hasRoot && uniqueRoots.size === 1) break;
+					}
+
+					// since 0/max cases covered, there must be 2 groups surrounding
+					if(uniqueRoots.size !== 2) return false;
+
+					const groupPopulationMap = new Map<CellNode, number>();
+					for(const root of roots)
+					{
+						const popul = (groupPopulationMap.get(root) ?? 0) + 1;
+						groupPopulationMap.set(root, popul);
+					}
+
+					const sourcePopulation = groupPopulationMap.get(sourceRoot) ?? 0;
+					if(sourcePopulation !== limit) return false
+					
+					break;}
+
+				default: throw new Error("Invalid local constraint during constraint application.");
+			}
+		}
+
+		return true;
+	}
+
+	private setGridFromGroups(): void
+	{
+		let rootA: CellNode | null = null,
+			rootB: CellNode | null = null,
+			idx = 0;
+
+		for(; idx < this.grid.cellCnt; idx++)
+		{
+			const state = this.grid.getState(idx);
+			if(state === CELL_STATE.A && !rootA) rootA = this.getRoot(idx);
+			else if(state === CELL_STATE.B && !rootB) rootB = this.getRoot(idx);
+			if(rootA && rootB) break;
+		}
+
+		for(idx = 0; idx < this.grid.cellCnt; idx++)
+		{
+			const root = this.getRoot(idx);
+			if(root === rootA) this.grid.setState(idx, CELL_STATE.A);
+			else if(root === rootB) this.grid.setState(idx, CELL_STATE.B);
+		}
+	}
+
+	private revertToSafeState(): void
+	{
+		while(true)
+		{
+			const saveState = this.saveStates.at(-1)!;
+			if(!saveState) {
+				this.isComplete = true;
+				return;
+			}
+
+			const nextMerge = saveState.possibleMerges.pop();
+			if(nextMerge)
+			{
+				const nodeGroups = saveState.nodeGroups;
+				for(let i = 0; i < nodeGroups.length; i++)
+				{
+					this.nodes[i].next = this.nodes[nodeGroups[i]];
+				}
+
+				this.useCompactNonMatches(saveState.nonMatch);
+				this.addAsNonMatching(...saveState.lastMerge);
+				this.mergeGroups(nextMerge);
+
+				saveState.nonMatch = this.buildCompactNonMatches();
+				saveState.lastMerge = nextMerge;
+			}
+			else
+			{
+				this.saveStates.pop();
+			}
+		}
+	}
+
+	private getPossibleMerges(): [number, number][]
+	{
+		const possibleMerges: [number, number][] = [];
+		const uniqueRoots = Array.from(new Set(this.nodes.map(c => this.getRoot(c).index)));
+		for(let i = 0, j; i < uniqueRoots.length; i++)
+		{
+			for(j = i + 1; j < uniqueRoots.length; j++)
+			{
+				const ra = uniqueRoots[i], rb = uniqueRoots[j];
+				if(this.nonMatch[ra][rb]) continue;
+				possibleMerges.push([ra, rb]);
+			}
+		}
+
+		return possibleMerges;
+	}
+
+	private buildCompactNonMatches(): number[]
+	{
+		const compact: number[] = [];
+		for(let i = 0, j; i < this.nonMatch.length; i++)
+		{
+			const row = this.nonMatch[i];
+			for(j = 0; j < this.nonMatch.length; j++)
+			{
+				// Assume that nonmatches with more than one position set are already merged
+				if(!row[j]) continue;
+				compact.push(i, j);
+				break;
+			}
+		}
+
+		return compact;
+	}
+
+	private useCompactNonMatches(compact: number[]): void
+	{
+		for(const row of this.nonMatch) row.length = 0;
+		for(let i = 0, a, b; i < compact.length; i += 2)
+		{
+			a = compact[i];
+			b = compact[i + 1];
+			this.nonMatch[a][b] = true;
+			this.nonMatch[b][a] = true;
+		}
+	}
 
 	private createConstraints(): void
 	{
@@ -698,15 +933,16 @@ class GroupSolver {
 		}
 	}
 
-	private applyConstraints(): boolean
+	private applyConstraints(): "INVALID" | "CHANGE" | "NOCHANGE"
 	{
 		const updated: boolean[] = [];
 		for(const con of this.allConstraints) {
-			if(con.type === "NEIGHBOR") debugger;
 			const isValid = this.applyConstraint(con, updated);
-			if(!isValid) return false;
+			if(!isValid) return "INVALID";
 		}
 		
+		const hasChange = updated[-1];
+
 		let iters = 1000;
 		while(updated[-1] && iters-- > 0) {
 			updated[-1] = false;
@@ -716,19 +952,17 @@ class GroupSolver {
 				updated[idx] = false;
 				
 				for(const con of this.localConstraints.get(idx)!) {
-					if(con.type === "NEIGHBOR") debugger;
 					const isValid = this.applyConstraint(con, updated);
-					// if(!isValid) debugger;
-					if(!isValid) return false;
+					if(!isValid) return "INVALID";
 				}
 			}
 		}
 
 		if(iters <= 0) throw new Error("Could not constrain in reasonable time.")
 
-		if(!this.differingGroupMerge()) return false;
+		if(!this.differingGroupMerge()) return "INVALID";
 
-		return true;
+		return hasChange ? "CHANGE" : "NOCHANGE";
 	}
 
 	private differingGroupMerge(): boolean {
@@ -781,7 +1015,7 @@ class GroupSolver {
 				const roots = con.indices.map(c => this.getRoot(c));
 
 				const uniqueRoots = new Set(roots);
-				if(uniqueRoots.size === 2) return true;;
+				if(uniqueRoots.size === 2) return true;
 
 				for(let i = 0; i < size; i++) {
 					const root = roots[i];
@@ -805,7 +1039,7 @@ class GroupSolver {
 						}
 						
 						this.mergeGroups(combine);
-						this.addAsUnmatch(combine[0], con.indices[i]);
+						this.addAsNonMatching(combine[0], con.indices[i]);
 						updated[-1] = true;
 					}
 				}
@@ -832,12 +1066,23 @@ class GroupSolver {
 				else if(matchCount === size - 2)
 				{
 					// opposite non-match case
-					let changed = false;
+					let changed = false, oldA, oldB;
 					for(let i = 0; i < size; i++)
 					{
+						const ra = rootsA[i], rb = rootsB[i];
+						if(ra === rb || this.nonMatch[ra.index][rb.index]) continue;
 						const a = con.a[i], b = con.b[i];
-						if(rootsA[i] === rootsB[i] || this.nonMatch[a][b]) continue;
-						this.addAsUnmatch(a, b);
+						this.addAsNonMatching(a, b);
+
+						if(oldA !== undefined && oldB !== undefined) {
+							this.addAsNonMatching(a, oldA);
+							this.addAsNonMatching(b, oldB);
+						}
+						else {
+							oldA = a;
+							oldB = b;
+						}
+
 						changed = true;
 					}
 					
@@ -864,10 +1109,10 @@ class GroupSolver {
 							this.mergeGroups([con.a[i], con.b[i]]);
 						}
 
-						if(aMatched && bMatched) return true;;
+						if(aMatched && bMatched) return true;
 					}
 					
-					updated[-1] = true;
+					if(aMatched || bMatched) updated[-1] = true;
 				}
 
 				break;}
@@ -887,7 +1132,7 @@ class GroupSolver {
 					if(hasRoot) return false;
 					if(uniqueRoots.size === 1) return true;
 					this.mergeGroups(con.counting);
-					this.addAsUnmatch(roots[0].index, con.source);
+					this.addAsNonMatching(roots[0].index, con.source);
 				}
 				else if(limit === max)
 				{
@@ -969,7 +1214,7 @@ class GroupSolver {
 						if(invLimit !== limit) sourceBatch.push(con.source);
 						this.mergeGroups(sourceBatch);
 						this.mergeGroups(remainingBatch);
-						this.addAsUnmatch(sourceBatch[0], remainingBatch[0]);
+						this.addAsNonMatching(sourceBatch[0], remainingBatch[0]);
 					}
 					
 					return true;
@@ -1018,27 +1263,6 @@ class GroupSolver {
 		return retVal;
 	}
 
-	// private getLineMaskAndCount(line: number[]): Map<CellNode, { mask: number, count: number }>
-	// {
-	// 	const nodeData = new Map<CellNode, { mask: number, count: number }>(),
-	// 		size = this.grid.size;
-	// 	for(let i = 0; i < size; i++) {
-	// 		const root = this.getRoot(line[i]);
-	// 		const data = nodeData.get(root);
-	// 		if(data) {
-	// 			data.mask |= 1 << i;
-	// 			data.count++;
-	// 		}
-	// 		else {
-	// 			nodeData.set(root, {
-	// 				mask: 1 << i,
-	// 				count: 1,
-	// 			})
-	// 		}
-	// 	}
-	// 	return nodeData;
-	// }
-
 	private mergeGroups(indices: number[]): void
 	{
 		const roots = new Set<CellNode>;
@@ -1081,14 +1305,14 @@ class GroupSolver {
 		return c;
 	}
 
-	private addAsUnmatch(a: number, b: number) {
+	private addAsNonMatching(a: number, b: number) {
 		a = this.getRoot(a).index;
 		b = this.getRoot(b).index;
 		this.nonMatch[a][b] = true;
 		this.nonMatch[b][a] = true;
 	}
 
-    private logGroupIDs(): void
+    public logGroupIDs(): void
 	{
         const layers: number[][] = [[]];
         for(let idx = 0; idx < this.grid.cellCnt; idx++) {
