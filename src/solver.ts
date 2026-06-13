@@ -673,6 +673,15 @@ class GroupSolver {
 		}
     }
 
+	public getRoot(c: CellNode | number): CellNode
+	{
+		if(typeof c === "number") c = this.nodes[c];
+		while(c.next) {
+			c = c.next;
+		}
+		return c;
+	}
+
 	private inValidFinalState(): boolean
 	{
 		const uniqueRoots = new Set<CellNode>();
@@ -1294,15 +1303,6 @@ class GroupSolver {
 		}
 
 		return rootIdx;
-	}
-
-	private getRoot(c: CellNode | number): CellNode
-	{
-		if(typeof c === "number") c = this.nodes[c];
-		while(c.next) {
-			c = c.next;
-		}
-		return c;
 	}
 
 	private addAsNonMatching(a: number, b: number) {

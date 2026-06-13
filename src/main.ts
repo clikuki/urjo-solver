@@ -107,9 +107,13 @@ const GetTemplate = (() => {
 function updateGridDisplay(
 	gridEl: HTMLElement,
 	gridData: GridData,
+	groupSolver?: BiStateSolver | GroupSolver
 ): void
 {
 	gridEl.style.setProperty("--size", String(gridData.size));
+
+	const variableMode = groupSolver instanceof GroupSolver && !groupSolver.isComplete;
+	gridEl.setAttribute("data-variable", `${variableMode}`.toUpperCase());
 
 	const cellCnt = gridData.cellCnt;
 	if (gridEl.childElementCount > cellCnt)
@@ -126,7 +130,41 @@ function updateGridDisplay(
 		gridEl.appendChild(cellFrag);
 	}
 
-	for (let i = 0; i < cellCnt; i++)
+	if(variableMode)
+	{
+		// Variable coloring
+		// const roots = Array(cellCnt).fill(0).map((_, i) => solver.getRoot(i));
+		let rootA: CellNode | null = null,
+			rootB: CellNode | null = null,
+			idx = 0;
+
+		for(; idx < cellCnt; idx++)
+		{
+			const state = gridData.getState(idx);
+			if(state === CELL_STATE.A && !rootA) rootA = groupSolver.getRoot(idx);
+			else if(state === CELL_STATE.B && !rootB) rootB = groupSolver.getRoot(idx);
+			if(rootA && rootB) break;
+		}
+
+		// const coloring = new Map<number, string>();
+		
+		for(let i = 0; i < cellCnt; i++) {
+			const state = gridData.getState(i);
+			const root = groupSolver.getRoot(i);
+			const cellEl = gridEl.children[i] as HTMLElement;
+
+			if(state === CELL_STATE.A || root === rootA) cellEl.setAttribute("data-state", "A");
+			else if(state === CELL_STATE.B || root === rootB) cellEl.setAttribute("data-state", "B");
+			else {
+				cellEl.setAttribute("data-state", "UNSET");
+
+				const hue = (root.index / cellCnt * 200 + 50).toString();
+				cellEl.style.setProperty("--color-var", `hsl(${hue} 75 50)`)
+			}
+		}
+	}
+	// Basic state coloring
+	else for (let i = 0; i < cellCnt; i++)
 	{
 		const state = gridData.getState(i);
 		const cellEl = gridEl.children[i];
@@ -144,7 +182,12 @@ function updateGridDisplay(
 				cellEl.setAttribute("data-state", "UNSET");
 				break;
 		}
+	}
 
+	// Limit count setting
+	for (let i = 0; i < cellCnt; i++)
+	{
+		const cellEl = gridEl.children[i];
 		const countEl = cellEl.querySelector(".count") as HTMLElement;
 		const limit = gridData.getLimitCount(i);
 		countEl.textContent = limit < 0 ? "" : String(limit);
@@ -295,7 +338,7 @@ function main()
 		if(keepSolving) keepSolving = false;
 		else if(!solver.isComplete) {
 			solver.step();
-			updateGridDisplay(gridEl, gridData);
+			updateGridDisplay(gridEl, gridData, solver);
 		}
 	})
 
@@ -393,7 +436,7 @@ function main()
 
 		if(keepSolving && !solver.isComplete) {
 			solver.step();
-			updateGridDisplay(gridEl, gridData);
+			updateGridDisplay(gridEl, gridData, solver);
 		}
 		else keepSolving = false;
 
@@ -412,7 +455,8 @@ function main()
 	// @ts-expect-error
 	window.solver = solver;
 	// @ts-expect-error
-	window.render = () => updateGridDisplay(gridEl, gridData);
+	window.render = () => updateGridDisplay(gridEl, gridData, solver);
 }
 
+// TODO: make ui controls more robust
 main();

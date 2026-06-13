@@ -138,6 +138,7 @@ button {
 	border-radius: 45%;
 	overflow: hidden;
 	container-type: inline-size;
+	background-color: var(--color-var, #333);
 }
 
 .count {
@@ -171,18 +172,32 @@ button {
 	translate: 51.5%;
 }
 
-.cell[data-state=UNSET] .side {
-	opacity: 0.3;
-}
-
-.cell[data-state=UNSET] .side:hover {
-	opacity: .6;
-}
-
 .cell[data-state=A] {
 	background-color: var(--color-a);
 }
 
 .cell[data-state=B] {
 	background-color: var(--color-b);
+}
+
+[data-variable="FALSE"] .cell[data-state=UNSET]
+{
+	background-color: transparent;
+}
+
+[data-variable="FALSE"] .cell[data-state=UNSET] .side {
+	opacity: 0.3;
+}
+
+[data-variable="FALSE"] .cell[data-state=UNSET] .side:hover {
+	opacity: .6;
+}
+
+[data-variable="TRUE"] .cell[data-state=UNSET]
+{
+	border: 1rem solid #ffffff;
+}
+
+[data-variable="TRUE"] .side {
+	opacity: 0;
 }
