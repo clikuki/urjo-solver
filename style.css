@@ -138,7 +138,7 @@ button {
 	border-radius: 45%;
 	overflow: hidden;
 	container-type: inline-size;
-	background-color: var(--color-var, #333);
+	background-color: #333;
 }
 
 .count {
@@ -195,7 +195,7 @@ button {
 
 [data-variable="TRUE"] .cell[data-state=UNSET]
 {
-	border: 1rem solid #ffffff;
+	border: 1rem solid var(--color-var, white);
 }
 
 [data-variable="TRUE"] .side {

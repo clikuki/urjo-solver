@@ -146,8 +146,7 @@ function updateGridDisplay(
 			if(rootA && rootB) break;
 		}
 
-		// const coloring = new Map<number, string>();
-		
+		const size = gridData.size;
 		for(let i = 0; i < cellCnt; i++) {
 			const state = gridData.getState(i);
 			const root = groupSolver.getRoot(i);
@@ -158,7 +157,15 @@ function updateGridDisplay(
 			else {
 				cellEl.setAttribute("data-state", "UNSET");
 
-				const hue = (root.index / cellCnt * 200 + 50).toString();
+				const ridx = root.index;
+				let x = ridx % size;
+				let y = Math.floor(ridx / size);
+				if(x % 2) x = (x - 1) / 2 + size / 2;
+				else x = x / 2;
+				if(y % 2) y = (y - 1) / 2 + size / 2;
+				else y = y / 2;
+				const t = x + y * size;
+				const hue = (t / cellCnt * 200 + 50).toString();
 				cellEl.style.setProperty("--color-var", `hsl(${hue} 75 50)`)
 			}
 		}
