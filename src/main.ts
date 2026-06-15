@@ -165,7 +165,7 @@ function updateGridDisplay(
 				if(y % 2) y = (y - 1) / 2 + size / 2;
 				else y = y / 2;
 				const t = x + y * size;
-				const hue = (t / cellCnt * 200 + 50).toString();
+				const hue = (t / cellCnt * 256).toString();
 				cellEl.style.setProperty("--color-var", `hsl(${hue} 75 50)`)
 			}
 		}
